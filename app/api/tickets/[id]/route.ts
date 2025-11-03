@@ -16,6 +16,15 @@ export async function GET(
 
     if (ticketError) throw ticketError;
 
+    // Get latest status from status log
+    const { data: latestStatus } = await supabase
+      .from("ticket_statuses")
+      .select("status")
+      .eq("ticket_id", params.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
     const { data: messages, error: messagesError } = await supabase
       .from("messages")
       .select("*")
@@ -26,6 +35,7 @@ export async function GET(
 
     return NextResponse.json({
       ...ticket,
+      status: latestStatus?.status || "open",
       messages: (messages || []).map((msg: any) => ({
         ...msg,
         createdAt: msg.created_at,

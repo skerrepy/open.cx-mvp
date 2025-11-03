@@ -12,9 +12,11 @@ interface Message {
 interface MessageListProps {
   messages: Message[];
   isLoading: boolean;
+  isAgentTyping?: boolean;
+  ticketLanguage?: string;
 }
 
-export default function MessageList({ messages, isLoading }: MessageListProps) {
+export default function MessageList({ messages, isLoading, isAgentTyping = false, ticketLanguage }: MessageListProps) {
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-3">
       {messages.map((m, i) => {
@@ -38,6 +40,13 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
                   : "bg-gray-100 text-gray-800"
               }`}
             >
+              {isCustomer && ticketLanguage && (
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded-full">
+                    {ticketLanguage}
+                  </span>
+                </div>
+              )}
               {isAI ? (
                 <div className="text-sm prose prose-sm max-w-none break-words">
                   <ReactMarkdown
@@ -90,6 +99,20 @@ export default function MessageList({ messages, isLoading }: MessageListProps) {
               <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></div>
               <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></div>
               <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></div>
+            </div>
+          </div>
+        </div>
+      )}
+      {isAgentTyping && (
+        <div className="flex justify-start">
+          <div className="bg-blue-100 p-3 rounded-lg">
+            <div className="flex items-center space-x-2">
+              <span className="text-xs text-blue-800 font-medium">Agent</span>
+              <div className="flex space-x-1">
+                <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></div>
+                <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></div>
+                <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></div>
+              </div>
             </div>
           </div>
         </div>

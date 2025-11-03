@@ -8,6 +8,7 @@ export interface Ticket {
   created_at: string;
   customer_id: string | null;
   assignee_id: string | null;
+  language?: string | null;
   messages?: Message[];
 }
 
@@ -23,13 +24,40 @@ export const useTickets = () => {
   return useQuery<Ticket[]>({
     queryKey: ["tickets"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Fetch tickets with messages count and latest status
+      const { data: tickets, error } = await supabase
         .from("tickets")
-        .select("*")
+        .select(`
+          *,
+          messages (
+            id
+          )
+        `)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return data || [];
+      
+      // Get latest status for each ticket
+      const ticketsWithStatus = await Promise.all(
+        (tickets || []).map(async (ticket: any) => {
+          // Get latest status from status log
+          const { data: latestStatus } = await supabase
+            .from("ticket_statuses")
+            .select("status")
+            .eq("ticket_id", ticket.id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .single();
+
+          return {
+            ...ticket,
+            status: latestStatus?.status || "open",
+            messages: ticket.messages || [],
+          };
+        })
+      );
+
+      return ticketsWithStatus;
     },
   });
 };
@@ -46,6 +74,15 @@ export const useTicket = (ticketId: string) => {
 
       if (ticketError) throw ticketError;
 
+      // Get latest status from status log
+      const { data: latestStatus } = await supabase
+        .from("ticket_statuses")
+        .select("status")
+        .eq("ticket_id", ticketId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
       const { data: messages, error: messagesError } = await supabase
         .from("messages")
         .select("*")
@@ -56,6 +93,7 @@ export const useTicket = (ticketId: string) => {
 
       return {
         ...ticket,
+        status: latestStatus?.status || "open",
         messages: messages || [],
       };
     },

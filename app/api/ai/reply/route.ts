@@ -14,20 +14,23 @@ export async function POST(req: Request) {
 
     const supabase = await createServerClient();
     
-    // Check if ticket status is already pending_agent or closed
+    // Check if ticket status is already needs_human_assistance or closed
     let ticketStatus = "open";
     if (ticketId) {
-      const { data: ticket } = await supabase
-        .from("tickets")
+      // Get latest status from status log
+      const { data: latestStatus } = await supabase
+        .from("ticket_statuses")
         .select("status")
-        .eq("id", ticketId)
+        .eq("ticket_id", ticketId)
+        .order("created_at", { ascending: false })
+        .limit(1)
         .single();
       
-      if (ticket) {
-        ticketStatus = ticket.status;
+      if (latestStatus) {
+        ticketStatus = latestStatus.status;
         
         // If ticket is already with agent or closed, don't generate AI response
-        if (ticket.status === "pending_agent" || ticket.status === "closed") {
+        if (ticketStatus === "needs_human_assistance" || ticketStatus === "closed") {
           return NextResponse.json({ 
             reply: "A human agent will assist you shortly.", 
             text: "A human agent will assist you shortly.",
@@ -37,7 +40,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // Enhanced system prompt - AI should provide helpful answers and only transfer when necessary
+    // Enhanced system prompt - AI decides when to transfer based on context
     const enhancedMessages = [
       {
         role: "system",
@@ -47,25 +50,35 @@ IMPORTANT GUIDELINES:
 1. ALWAYS provide helpful, detailed answers to customer questions first
 2. When asked about policies (refunds, returns, shipping, etc.), provide the actual policy information clearly
 3. Be confident in your answers - you should handle most common questions
-4. ONLY transfer to a human agent in these specific cases:
-   - Customer EXPLICITLY requests: "I want to speak to a human", "can I talk to a real person", "transfer me to an agent", "I need a human agent"
-   - Customer shows CLEAR dissatisfaction AFTER your answer: "that doesn't help", "I'm not satisfied with that", "this isn't what I need", "that's not helpful"
-   - Customer asks something you genuinely cannot answer or are unsure about
+4. ONLY indicate transfer to human agent in these specific cases:
+   - Customer EXPLICITLY requests to speak with a human agent
+   - Customer shows CLEAR dissatisfaction AFTER your answer (e.g., "that doesn't help", "I'm not satisfied")
+   - You genuinely cannot answer or are unsure about something that requires human judgment
 
 DO NOT transfer to human agent when:
 - Customer asks a general question that you can answer (even if it's about refunds, returns, policies)
 - Customer asks for information you can provide
 - Customer seems to want an answer, not necessarily a human (provide the answer first)
 
-Example good response to "How do I return a product?":
-"Our return policy allows returns within 30 days of purchase. Items must be unused and in original packaging. To initiate a return, please visit your account orders page and click 'Request Return' on the item. You'll receive a prepaid shipping label. Is there anything specific about the return process you'd like to know?"
+RESPONSE FORMAT:
+- Provide your normal helpful response to the customer
+- At the END of your response, if you determine the customer needs human assistance, add exactly this marker on a new line: "[[TRANSFER_TO_AGENT]]"
+- If no transfer is needed, do NOT include this marker
 
-Example of when to transfer:
-Customer: "I want to speak to a human agent" → Transfer
-Customer: "That answer doesn't help me at all" → Transfer
-Customer: "I'm not satisfied with this" → Transfer
+Example responses:
 
-Be helpful, confident, and informative. Only escalate when truly necessary.`,
+Customer: "How do I return a product?"
+Your response: "Our return policy allows returns within 30 days of purchase. Items must be unused and in original packaging. To initiate a return, please visit your account orders page and click 'Request Return' on the item. You'll receive a prepaid shipping label. Is there anything specific about the return process you'd like to know?"
+
+Customer: "I want to speak to a human agent"
+Your response: "I understand you'd like to speak with a human agent. Let me connect you with one right away.
+[[TRANSFER_TO_AGENT]]"
+
+Customer: "That answer doesn't help me at all"
+Your response: "I apologize that my previous response wasn't helpful. Let me connect you with a human agent who can better assist you.
+[[TRANSFER_TO_AGENT]]"
+
+Be helpful, confident, and informative. Only add the transfer marker when truly necessary.`,
       },
       ...messages.filter((m: any) => m.role !== "system"),
     ];
@@ -75,40 +88,15 @@ Be helpful, confident, and informative. Only escalate when truly necessary.`,
       messages: enhancedMessages,
     });
 
-    const reply = completion.choices?.[0]?.message?.content || "Sorry, I'm not sure.";
+    let reply = completion.choices?.[0]?.message?.content || "Sorry, I'm not sure.";
 
-    // Check if customer wants human agent - only detect explicit requests or clear dissatisfaction
-    // Look at the conversation context, not just keywords
-    const conversationHistory = messages
-      .filter((m: any) => m.role === "user")
-      .map((m: any) => m.content?.toLowerCase() || "");
+    // Check if AI decided to transfer (look for the marker in the response)
+    const wantsHumanAgent = reply.includes("[[TRANSFER_TO_AGENT]]");
     
-    const lastUserMessage = conversationHistory[conversationHistory.length - 1] || "";
-    const secondLastUserMessage = conversationHistory[conversationHistory.length - 2] || "";
-
-    // Explicit requests for human agent
-    const explicitRequest = 
-      lastUserMessage.includes("i want to speak to a human") ||
-      lastUserMessage.includes("can i talk to a real person") ||
-      lastUserMessage.includes("can i speak to a human") ||
-      lastUserMessage.includes("transfer me to an agent") ||
-      lastUserMessage.includes("i need a human agent") ||
-      lastUserMessage.includes("connect me with a human") ||
-      lastUserMessage.includes("let me talk to a person");
-
-    // Clear dissatisfaction indicators (usually after AI has responded)
-    const dissatisfaction = 
-      lastUserMessage.includes("that doesn't help") ||
-      lastUserMessage.includes("that's not helpful") ||
-      lastUserMessage.includes("i'm not satisfied with that") ||
-      lastUserMessage.includes("this isn't what i need") ||
-      lastUserMessage.includes("that didn't help") ||
-      lastUserMessage.includes("not helpful") ||
-      (lastUserMessage.includes("not satisfied") && conversationHistory.length > 1) ||
-      (lastUserMessage.includes("dissatisfied") && conversationHistory.length > 1);
-
-    // Only transfer if there's an explicit request OR clear dissatisfaction after AI response
-    const wantsHumanAgent = explicitRequest || dissatisfaction;
+    // Remove the marker from the reply before saving/displaying
+    if (wantsHumanAgent) {
+      reply = reply.replace("[[TRANSFER_TO_AGENT]]", "").trim();
+    }
 
     // Save AI reply to database if ticketId is provided
     if (ticketId) {
@@ -118,29 +106,29 @@ Be helpful, confident, and informative. Only escalate when truly necessary.`,
         text: reply,
       });
 
-      // If customer wants human agent, update ticket status
+      // If AI decided to transfer to human agent, add status to log
       if (wantsHumanAgent) {
         await supabase
-          .from("tickets")
-          .update({ status: "pending_agent" })
-          .eq("id", ticketId);
+          .from("ticket_statuses")
+          .insert({
+            ticket_id: ticketId,
+            status: "needs_human_assistance",
+          });
 
-        // Add a system message indicating transfer
+        // Add a system message indicating transfer (only once in database)
         await supabase.from("messages").insert({
           ticket_id: ticketId,
           sender: "system",
           text: "This conversation has been transferred to a human support agent. An agent will respond shortly.",
         });
-
-        return NextResponse.json({ 
-          reply, 
-          text: reply,
-          transferToAgent: true 
-        });
       }
     }
 
-    return NextResponse.json({ reply, text: reply, transferToAgent: false });
+    return NextResponse.json({ 
+      reply, 
+      text: reply,
+      transferToAgent: wantsHumanAgent 
+    });
   } catch (error) {
     console.error("OpenAI API error:", error);
     return NextResponse.json(

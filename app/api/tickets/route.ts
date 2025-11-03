@@ -22,18 +22,32 @@ export async function GET() {
 
     if (error) throw error;
 
-    // Transform data to match expected format
-    const formattedTickets = (tickets || []).map((ticket: any) => ({
-      ...ticket,
-      createdAt: ticket.created_at,
-      customerId: ticket.customer_id,
-      assigneeId: ticket.assignee_id,
-      messages: (ticket.messages || []).slice(0, 1).map((msg: any) => ({
-        ...msg,
-        createdAt: msg.created_at,
-        ticketId: msg.ticket_id,
-      })),
-    }));
+    // Get latest status for each ticket and transform data
+    const formattedTickets = await Promise.all(
+      (tickets || []).map(async (ticket: any) => {
+        // Get latest status from status log
+        const { data: latestStatus } = await supabase
+          .from("ticket_statuses")
+          .select("status")
+          .eq("ticket_id", ticket.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .single();
+
+        return {
+          ...ticket,
+          status: latestStatus?.status || "open",
+          createdAt: ticket.created_at,
+          customerId: ticket.customer_id,
+          assigneeId: ticket.assignee_id,
+          messages: (ticket.messages || []).slice(0, 1).map((msg: any) => ({
+            ...msg,
+            createdAt: msg.created_at,
+            ticketId: msg.ticket_id,
+          })),
+        };
+      })
+    );
 
     return NextResponse.json(formattedTickets);
   } catch (error) {
@@ -58,17 +72,26 @@ export async function POST(req: Request) {
 
     const supabase = await createServerClient();
 
-    // Create ticket
+    // Create ticket (without status field - we'll use status log)
+    // Language will be detected passively when enough text accumulates
     const { data: ticket, error: ticketError } = await supabase
       .from("tickets")
       .insert({
         subject,
-        status: "open",
+        language: null, // Will be set when enough customer messages accumulate
       })
       .select()
       .single();
 
     if (ticketError) throw ticketError;
+
+    // Add initial "open" status to status log
+    await supabase
+      .from("ticket_statuses")
+      .insert({
+        ticket_id: ticket.id,
+        status: "open",
+      });
 
     // Create first message
     const { data: message, error: messageError } = await supabase

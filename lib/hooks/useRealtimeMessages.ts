@@ -73,6 +73,19 @@ export const useRealtimeTickets = () => {
           queryClient.invalidateQueries({ queryKey: ["tickets"] });
         }
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "ticket_statuses",
+        },
+        () => {
+          // Invalidate tickets query when status changes
+          queryClient.invalidateQueries({ queryKey: ["tickets"] });
+          queryClient.invalidateQueries({ queryKey: ["ticket"] });
+        }
+      )
       .subscribe();
 
     return () => {

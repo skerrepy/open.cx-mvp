@@ -30,13 +30,15 @@ export default function TicketView({ ticketId }: TicketViewProps) {
       return;
     }
 
-    // Ticket should already be pending_agent if agent is responding
-    // But if for some reason it's still open, update it
+    // Ticket should already be needs_human_assistance if agent is responding
+    // But if for some reason it's still open, add status to log
     if (ticket.status === "open") {
       await supabase
-        .from("tickets")
-        .update({ status: "pending_agent" })
-        .eq("id", ticketId);
+        .from("ticket_statuses")
+        .insert({
+          ticket_id: ticketId,
+          status: "needs_human_assistance",
+        });
       
       queryClient.invalidateQueries({ queryKey: ["ticket", ticketId] });
       queryClient.invalidateQueries({ queryKey: ["tickets"] });
@@ -58,10 +60,13 @@ export default function TicketView({ ticketId }: TicketViewProps) {
   const handleCloseTicket = async () => {
     if (!confirm("Are you sure you want to close this ticket?")) return;
 
+    // Add "closed" status to status log
     await supabase
-      .from("tickets")
-      .update({ status: "closed" })
-      .eq("id", ticketId);
+      .from("ticket_statuses")
+      .insert({
+        ticket_id: ticketId,
+        status: "closed",
+      });
 
     queryClient.invalidateQueries({ queryKey: ["ticket", ticketId] });
     queryClient.invalidateQueries({ queryKey: ["tickets"] });
@@ -112,6 +117,11 @@ export default function TicketView({ ticketId }: TicketViewProps) {
               {ticket.subject || "No subject"}
             </h2>
             <div className="flex items-center gap-2 mt-2">
+              {ticket.language && (
+                <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700">
+                  {ticket.language}
+                </span>
+              )}
               <span
                 className={`px-2 py-1 text-xs font-semibold rounded-full ${
                   ticket.status === "open"
@@ -121,7 +131,7 @@ export default function TicketView({ ticketId }: TicketViewProps) {
                     : "bg-yellow-100 text-yellow-800"
                 }`}
               >
-                {ticket.status === "pending_agent" ? "Needs Agent" : ticket.status}
+                {ticket.status === "needs_human_assistance" ? "Needs Human Assistance" : ticket.status}
               </span>
               <span className="text-sm text-gray-500">
                 {messages.length} message{messages.length !== 1 ? "s" : ""}
@@ -142,7 +152,7 @@ export default function TicketView({ ticketId }: TicketViewProps) {
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
         {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
+          <MessageBubble key={message.id} message={message} ticketLanguage={ticket.language || undefined} />
         ))}
       </div>
 

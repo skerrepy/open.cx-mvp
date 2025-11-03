@@ -8,6 +8,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 import { Message } from "@/lib/hooks/useTickets";
 import axios from "@/lib/axios";
+// Language detection is now done server-side in the API route
 
 interface WidgetMessage {
   sender: string;
@@ -25,70 +26,155 @@ export default function Widget() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [ticketId, setTicketId] = useState<string | null>(null);
+  const [ticketLanguage, setTicketLanguage] = useState<string | null>(null);
+  const [isAgentTyping, setIsAgentTyping] = useState(false);
+  const [isConnected, setIsConnected] = useState(true);
   const queryClient = useQueryClient();
 
-  // Subscribe to real-time messages for this ticket
+  // Load existing messages and subscribe to real-time updates for this ticket
   useEffect(() => {
     if (!ticketId) return;
 
-    const channel = supabase
-      .channel(`widget-messages:${ticketId}`)
+    // Load existing messages and ticket language for this ticket
+    const loadMessages = async () => {
+      const { data: existingMessages, error } = await supabase
+        .from("messages")
+        .select("*")
+        .eq("ticket_id", ticketId)
+        .order("created_at", { ascending: true });
+
+      if (!error && existingMessages) {
+        // Replace welcome message with actual messages from database
+        setMessages(
+          existingMessages.map((msg) => ({
+            sender: msg.sender,
+            text: msg.text,
+            createdAt: msg.created_at,
+            id: msg.id,
+          }))
+        );
+      }
+
+      // Load ticket language
+      const { data: ticket } = await supabase
+        .from("tickets")
+        .select("language")
+        .eq("id", ticketId)
+        .single();
+
+      if (ticket?.language) {
+        setTicketLanguage(ticket.language);
+      }
+    };
+
+    loadMessages();
+
+            // Subscribe to new messages, typing indicators, and ticket updates
+            const channel = supabase
+              .channel(`widget-messages:${ticketId}`)
+              .on(
+                "postgres_changes",
+                {
+                  event: "INSERT",
+                  schema: "public",
+                  table: "messages",
+                  filter: `ticket_id=eq.${ticketId}`,
+                },
+                (payload) => {
+                  const newMessage = payload.new as Message;
+                  setMessages((prev) => {
+                    // Avoid duplicates by checking message ID (most reliable)
+                    // Also check text + sender + timestamp as fallback
+                    const isDuplicate = prev.some(
+                      (m) =>
+                        (m as any).id === newMessage.id ||
+                        (m.text === newMessage.text &&
+                          m.sender === newMessage.sender &&
+                          Math.abs(
+                            new Date(m.createdAt || "").getTime() -
+                              new Date(newMessage.created_at).getTime()
+                          ) < 2000) // Within 2 seconds
+                    );
+
+                    if (isDuplicate) {
+                      return prev;
+                    }
+
+                    // Add new message
+                    const widgetMessage: WidgetMessage & { id?: string } = {
+                      sender: newMessage.sender,
+                      text: newMessage.text,
+                      createdAt: newMessage.created_at,
+                      id: newMessage.id, // Store ID for better duplicate detection
+                    };
+
+                    // Stop loading when we receive AI or system messages
+                    if (newMessage.sender === "ai" || newMessage.sender === "system") {
+                      setIsLoading(false);
+                    }
+
+                    // Stop typing indicator when agent sends a message
+                    if (newMessage.sender === "agent") {
+                      setIsAgentTyping(false);
+                    }
+
+                    return [...prev, widgetMessage];
+                  });
+                }
+              )
+              .on(
+                "postgres_changes",
+                {
+                  event: "UPDATE",
+                  schema: "public",
+                  table: "tickets",
+                  filter: `id=eq.${ticketId}`,
+                },
+                (payload) => {
+                  const updatedTicket = payload.new as any;
+                  if (updatedTicket.language) {
+                    setTicketLanguage(updatedTicket.language);
+                  }
+                }
+              )
+      .subscribe((status) => {
+        // Track connection status
+        if (status === "SUBSCRIBED") {
+          setIsConnected(true);
+        } else if (status === "CLOSED" || status === "CHANNEL_ERROR") {
+          setIsConnected(false);
+        }
+      });
+
+    // Subscribe to typing indicators on a separate channel
+    const typingChannel = supabase
+      .channel(`typing:${ticketId}`)
       .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "messages",
-          filter: `ticket_id=eq.${ticketId}`,
-        },
+        "broadcast",
+        { event: "typing" },
         (payload) => {
-          const newMessage = payload.new as Message;
-          setMessages((prev) => {
-            // Avoid duplicates
-            if (prev.some((m) => m.text === newMessage.text && m.sender === newMessage.sender)) {
-              return prev;
-            }
-            return [
-              ...prev,
-              {
-                sender: newMessage.sender,
-                text: newMessage.text,
-                createdAt: newMessage.created_at,
-              },
-            ];
-          });
+          setIsAgentTyping(payload.payload.isTyping);
         }
       )
       .subscribe();
 
     return () => {
+      setIsConnected(false);
+      setIsAgentTyping(false);
       supabase.removeChannel(channel);
+      supabase.removeChannel(typingChannel);
     };
   }, [ticketId]);
 
   const createTicketMutation = useMutation({
     mutationFn: async ({ subject, firstMessage }: { subject: string; firstMessage: string }) => {
-      const { data, error } = await supabase
-        .from("tickets")
-        .insert({
-          subject,
-          status: "open",
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Add first message
-      const { error: msgError } = await supabase.from("messages").insert({
-        ticket_id: data.id,
-        sender: "customer",
-        text: firstMessage,
+      // Use API route for ticket creation (language detection happens server-side)
+      const response = await axios.post("/api/tickets", {
+        subject,
+        firstMessage,
       });
 
-      if (msgError) throw msgError;
-
-      return data;
+      return response.data;
     },
   });
 
@@ -96,18 +182,13 @@ export default function Widget() {
     mutationFn: async ({ text, sender }: { text: string; sender: string }) => {
       if (!ticketId) throw new Error("No ticket ID");
 
-      const { data, error } = await supabase
-        .from("messages")
-        .insert({
-          ticket_id: ticketId,
-          sender,
-          text,
-        })
-        .select()
-        .single();
+      // Use API route for message creation (language detection happens server-side)
+      const response = await axios.post(`/api/tickets/${ticketId}/messages`, {
+        text,
+        sender,
+      });
 
-      if (error) throw error;
-      return data;
+      return response.data;
     },
   });
 
@@ -115,8 +196,6 @@ export default function Widget() {
     const messageText = text || input;
     if (!messageText.trim()) return;
 
-    const userMsg: WidgetMessage = { sender: "customer", text: messageText };
-    setMessages((m) => [...m, userMsg]);
     setInput("");
     setIsLoading(true);
 
@@ -131,71 +210,81 @@ export default function Widget() {
           firstMessage: messageText,
         });
         currentTicketId = ticket.id;
-        ticketStatus = ticket.status || "open";
+        // Status is always "open" for new tickets
+        ticketStatus = "open";
         setTicketId(ticket.id);
+        
+        // Detect language on first message (non-blocking - fire and forget)
+        axios.post("/api/detect-language", {
+          ticketId: currentTicketId,
+          text: messageText,
+        }).catch((err) => {
+          console.error("Language detection error:", err);
+          // Fail silently - don't block message sending
+        });
+        
+        // Optimistically add user message only for first message (before realtime subscription is active)
+        const userMsg: WidgetMessage = { sender: "customer", text: messageText };
+        setMessages((m) => [...m, userMsg]);
       } else {
-        // Add message to existing ticket
+        // Add message to existing ticket - realtime subscription will add it
         await sendMessageMutation.mutateAsync({
           text: messageText,
           sender: "customer",
         });
 
-        // Check current ticket status
-        const { data: ticketData } = await supabase
-          .from("tickets")
+        // Check current ticket status from status log
+        const { data: latestStatus } = await supabase
+          .from("ticket_statuses")
           .select("status")
-          .eq("id", currentTicketId)
+          .eq("ticket_id", currentTicketId)
+          .order("created_at", { ascending: false })
+          .limit(1)
           .single();
         
-        if (ticketData) {
-          ticketStatus = ticketData.status;
+        if (latestStatus) {
+          ticketStatus = latestStatus.status;
         }
       }
 
-      // Only get AI response if ticket is still open (not pending_agent or closed)
-      if (ticketStatus === "open") {
-        // Get AI response using axios
-        const { data: aiData } = await axios.post("/api/ai/reply", {
-          ticketId: currentTicketId,
-          messages: [
-            {
-              role: "system",
-              content: "You are a helpful AI support assistant. Be concise and friendly.",
-            },
-            ...messages.map((m) => ({
-              role: m.sender === "customer" ? "user" : "assistant",
-              content: m.text,
-            })),
-            { role: "user", content: messageText },
-          ],
-        });
+          // Only get AI response if ticket is still open (not needs_human_assistance or closed)
+          if (ticketStatus === "open") {
+            // Get AI response using axios
+            // The API route saves AI reply and system message (if transfer) to database
+            // Real-time subscription will automatically add them - don't add manually
+            await axios.post("/api/ai/reply", {
+              ticketId: currentTicketId,
+              messages: [
+                {
+                  role: "system",
+                  content: "You are a helpful AI support assistant. Be concise and friendly.",
+                },
+                ...messages.map((m) => ({
+                  role: m.sender === "customer" ? "user" : "assistant",
+                  content: m.text,
+                })),
+                { role: "user", content: messageText },
+              ],
+            });
 
-        const aiMsg: WidgetMessage = { sender: "ai", text: aiData.reply || aiData.text };
-        setMessages((m) => [...m, aiMsg]);
-
-        // If AI transferred to agent, show notification
-        if (aiData.transferToAgent) {
-          const transferMsg: WidgetMessage = {
-            sender: "system",
-            text: "This conversation has been transferred to a human support agent. An agent will respond shortly.",
-          };
-          setTimeout(() => {
-            setMessages((m) => [...m, transferMsg]);
-          }, 1000);
-        }
-      } else {
-        // Ticket is with agent or closed, just show message sent
-        setIsLoading(false);
-      }
+            // Don't manually add messages - let realtime subscription handle everything
+            // This prevents duplicates. The realtime subscription will:
+            // 1. Add customer message (if not first message)
+            // 2. Add AI reply message
+            // 3. Add system transfer message (if transfer happened)
+          } else {
+            // Ticket is with agent or closed, realtime will add the customer message
+            setIsLoading(false);
+          }
     } catch (error: any) {
       console.error("Error sending message:", error);
       setMessages((m) => [
         ...m,
         { sender: "ai", text: error.message || "Sorry, I encountered an error. Please try again." },
       ]);
-    } finally {
       setIsLoading(false);
     }
+    // Note: setIsLoading(false) is handled by realtime subscription when message arrives
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -208,17 +297,20 @@ export default function Widget() {
   const requestHumanSupport = async () => {
     if (!ticketId) return;
 
-    const supportMsg: WidgetMessage = {
+    // Add status to status log
+    await supabase
+      .from("ticket_statuses")
+      .insert({
+        ticket_id: ticketId,
+        status: "needs_human_assistance",
+      });
+
+    // Add system message to database - realtime subscription will add it to UI
+    await supabase.from("messages").insert({
+      ticket_id: ticketId,
       sender: "system",
       text: "Your request has been transferred to a human support agent. An agent will respond shortly.",
-    };
-    setMessages((m) => [...m, supportMsg]);
-
-    // Update ticket status
-    await supabase
-      .from("tickets")
-      .update({ status: "pending_agent" })
-      .eq("id", ticketId);
+    });
   };
 
   return (
@@ -232,7 +324,14 @@ export default function Widget() {
         )}
       </div>
 
-      <MessageList messages={messages} isLoading={isLoading} />
+             <MessageList messages={messages} isLoading={isLoading} isAgentTyping={isAgentTyping} ticketLanguage={ticketLanguage || undefined} />
+      {!isConnected && (
+        <div className="px-4 py-2 bg-yellow-50 border-t border-yellow-200">
+          <p className="text-xs text-yellow-800">
+            ⚠️ Connection lost. Reconnecting...
+          </p>
+        </div>
+      )}
 
       {messages.length === 1 && (
         <div className="px-4 pb-2">
