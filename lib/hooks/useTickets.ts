@@ -10,6 +10,10 @@ export interface Ticket {
   assignee_id: string | null;
   language?: string | null;
   summary?: string | null;
+  customer_first_name?: string | null;
+  customer_last_name?: string | null;
+  customer_email?: string | null;
+  ai_token_usage?: number | null;
   messages?: Message[];
 }
 
@@ -99,6 +103,9 @@ export const useTicket = (ticketId: string) => {
       };
     },
     enabled: !!ticketId,
+    refetchOnMount: true, // Always refetch when component mounts (agent opens ticket)
+    refetchOnWindowFocus: true, // Refetch when window regains focus
+    staleTime: 0, // Consider data stale immediately so real-time updates are always fresh
   });
 };
 

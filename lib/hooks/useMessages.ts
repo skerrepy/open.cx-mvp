@@ -39,16 +39,17 @@ export const useSendMessage = (ticketId: string) => {
     },
     onMutate: async (newMessage) => {
       // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ["ticket", ticketId] });
       await queryClient.cancelQueries({ queryKey: ["messages", ticketId] });
 
-      // Snapshot previous value
-      const previousMessages = queryClient.getQueryData<Message[]>([
-        "messages",
+      // Snapshot previous value for ticket query
+      const previousTicket = queryClient.getQueryData<{ messages: Message[] }>([
+        "ticket",
         ticketId,
       ]);
 
-      // Optimistically update
-      queryClient.setQueryData<Message[]>(["messages", ticketId], (old) => {
+      // Optimistically update ticket query (the one actually used by the component)
+      if (previousTicket) {
         const optimisticMessage: Message = {
           id: `temp-${Date.now()}`,
           ticket_id: ticketId,
@@ -56,20 +57,26 @@ export const useSendMessage = (ticketId: string) => {
           text: newMessage.text,
           created_at: new Date().toISOString(),
         };
-        return [...(old || []), optimisticMessage];
-      });
+        queryClient.setQueryData<{ messages: Message[] }>(["ticket", ticketId], {
+          ...previousTicket,
+          messages: [...(previousTicket.messages || []), optimisticMessage],
+        });
+      }
 
-      return { previousMessages };
+      return { previousTicket };
     },
     onError: (err, newMessage, context) => {
       // Rollback on error
-      queryClient.setQueryData(
-        ["messages", ticketId],
-        context?.previousMessages
-      );
+      if (context?.previousTicket) {
+        queryClient.setQueryData(
+          ["ticket", ticketId],
+          context.previousTicket
+        );
+      }
     },
     onSettled: () => {
-      // Refetch after mutation
+      // Refetch after mutation to ensure consistency
+      queryClient.invalidateQueries({ queryKey: ["ticket", ticketId] });
       queryClient.invalidateQueries({ queryKey: ["messages", ticketId] });
     },
   });

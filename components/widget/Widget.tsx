@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import MessageList from "./MessageList";
 import Composer from "./Composer";
 import SuggestionChips from "./SuggestionChips";
+import CustomerSatisfaction from "./CustomerSatisfaction";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
 import { Message } from "@/lib/hooks/useTickets";
@@ -27,6 +28,7 @@ export default function Widget() {
   const [isLoading, setIsLoading] = useState(false);
   const [ticketId, setTicketId] = useState<string | null>(null);
   const [ticketLanguage, setTicketLanguage] = useState<string | null>(null);
+  const [ticketStatus, setTicketStatus] = useState<string>("open");
   const [isAgentTyping, setIsAgentTyping] = useState(false);
   const [isConnected, setIsConnected] = useState(true);
   const queryClient = useQueryClient();
@@ -34,6 +36,8 @@ export default function Widget() {
   // Load existing messages and subscribe to real-time updates for this ticket
   useEffect(() => {
     if (!ticketId) return;
+
+    let statusChannel: any = null;
 
     // Load existing messages and ticket language for this ticket
     const loadMessages = async () => {
@@ -65,9 +69,41 @@ export default function Widget() {
       if (ticket?.language) {
         setTicketLanguage(ticket.language);
       }
+
+      // Load ticket status
+      const { data: latestStatus } = await supabase
+        .from("ticket_statuses")
+        .select("status")
+        .eq("ticket_id", ticketId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (latestStatus) {
+        setTicketStatus(latestStatus.status);
+      }
     };
 
     loadMessages();
+
+            // Subscribe to ticket status changes
+            statusChannel = supabase
+              .channel(`widget-status:${ticketId}`)
+              .on(
+                "postgres_changes",
+                {
+                  event: "*",
+                  schema: "public",
+                  table: "ticket_statuses",
+                  filter: `ticket_id=eq.${ticketId}`,
+                },
+                (payload) => {
+                  if (payload.new && (payload.new as any).status) {
+                    setTicketStatus((payload.new as any).status);
+                  }
+                }
+              )
+              .subscribe();
 
             // Subscribe to new messages, typing indicators, and ticket updates
             const channel = supabase
@@ -163,8 +199,117 @@ export default function Widget() {
       setIsAgentTyping(false);
       supabase.removeChannel(channel);
       supabase.removeChannel(typingChannel);
+      if (statusChannel) {
+        supabase.removeChannel(statusChannel);
+      }
     };
   }, [ticketId]);
+
+  // Inactivity timer: Close ticket after 3 minutes of no user interaction
+  useEffect(() => {
+    if (!ticketId || ticketStatus !== "open") return;
+
+    let inactivityTimeout: NodeJS.Timeout | null = null;
+
+    const resetInactivityTimer = () => {
+      // Clear existing timeout
+      if (inactivityTimeout) {
+        clearTimeout(inactivityTimeout);
+      }
+
+      // Set new timeout: 3 minutes (180000ms)
+      inactivityTimeout = setTimeout(async () => {
+        try {
+          // Double-check ticket is still open before closing
+          const { data: latestStatus } = await supabase
+            .from("ticket_statuses")
+            .select("status")
+            .eq("ticket_id", ticketId)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .single();
+
+          if (latestStatus?.status === "open") {
+            // Insert closed status
+            await supabase
+              .from("ticket_statuses")
+              .insert({
+                ticket_id: ticketId,
+                status: "closed",
+              });
+
+            // Log the closure
+            await supabase.from("audit_logs").insert({
+              ticket_id: ticketId,
+              action_type: "ticket_closed",
+              actor_type: "customer",
+              details: {
+                closed_by: "customer",
+                reason: "inactivity",
+                inactivity_minutes: 3,
+              },
+            });
+
+            // Trigger auto-summarization in background
+            fetch(`/api/tickets/${ticketId}/auto-summarize`, {
+              method: "POST",
+            }).catch((error) => {
+              console.error("Error triggering auto-summarization:", error);
+            });
+          }
+        } catch (error) {
+          console.error("Error closing ticket due to inactivity:", error);
+        }
+      }, 3 * 60 * 1000); // 3 minutes
+    };
+
+    // Track user interactions: mouse movement, clicks, keyboard input, scrolling
+    const events = ["mousedown", "mousemove", "keypress", "scroll", "touchstart", "click"];
+    
+    events.forEach((event) => {
+      window.addEventListener(event, resetInactivityTimer, true);
+    });
+
+    // Start the timer
+    resetInactivityTimer();
+
+    // Cleanup
+    return () => {
+      if (inactivityTimeout) {
+        clearTimeout(inactivityTimeout);
+      }
+      events.forEach((event) => {
+        window.removeEventListener(event, resetInactivityTimer, true);
+      });
+    };
+  }, [ticketId, ticketStatus]);
+
+  // Close ticket instantly when customer closes the tab/window
+  useEffect(() => {
+    if (!ticketId || ticketStatus !== "open") return;
+
+    const closeTicketOnUnload = () => {
+      // Use fetch with keepalive for reliable delivery during page unload
+      // This works better than async/await in unload handlers
+      fetch(`/api/tickets/${ticketId}/close-on-unload`, {
+        method: "POST",
+        keepalive: true, // Ensures request completes even if page unloads
+      }).catch(() => {
+        // Silently fail - we tried our best
+      });
+    };
+
+    // Use beforeunload for desktop browsers
+    window.addEventListener("beforeunload", closeTicketOnUnload);
+    
+    // Use pagehide for mobile browsers and modern browsers (more reliable)
+    window.addEventListener("pagehide", closeTicketOnUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", closeTicketOnUnload);
+      window.removeEventListener("pagehide", closeTicketOnUnload);
+    };
+  }, [ticketId, ticketStatus]);
 
   const createTicketMutation = useMutation({
     mutationFn: async ({ subject, firstMessage }: { subject: string; firstMessage: string }) => {
@@ -224,10 +369,22 @@ export default function Widget() {
         });
         
         // Optimistically add user message only for first message (before realtime subscription is active)
-        const userMsg: WidgetMessage = { sender: "customer", text: messageText };
+        const userMsg: WidgetMessage = { 
+          sender: "customer", 
+          text: messageText,
+          createdAt: new Date().toISOString()
+        };
         setMessages((m) => [...m, userMsg]);
       } else {
-        // Add message to existing ticket - realtime subscription will add it
+        // Add message optimistically first (instant UI update)
+        const userMsg: WidgetMessage = { 
+          sender: "customer", 
+          text: messageText,
+          createdAt: new Date().toISOString()
+        };
+        setMessages((m) => [...m, userMsg]);
+
+        // Then send to server (realtime will add it again, but we'll handle duplicates)
         await sendMessageMutation.mutateAsync({
           text: messageText,
           sender: "customer",
@@ -247,40 +404,45 @@ export default function Widget() {
         }
       }
 
-          // Only get AI response if ticket is still open (not needs_human_assistance or closed)
-          if (ticketStatus === "open") {
-            // Get AI response using axios
-            // The API route saves AI reply and system message (if transfer) to database
-            // Real-time subscription will automatically add them - don't add manually
-            await axios.post("/api/ai/reply", {
-              ticketId: currentTicketId,
-              messages: [
-                {
-                  role: "system",
-                  content: "You are a helpful AI support assistant. Be concise and friendly.",
-                },
-                ...messages.map((m) => ({
-                  role: m.sender === "customer" ? "user" : "assistant",
-                  content: m.text,
-                })),
-                { role: "user", content: messageText },
-              ],
-            });
+      // Only get AI response if ticket is still open (not needs_human_assistance or closed)
+      if (ticketStatus === "open") {
+        try {
+          // Get AI response using axios
+          // The API route saves AI reply and system message (if transfer) to database
+          // Real-time subscription will automatically add them - don't add manually
+          const aiResponse = await axios.post("/api/ai/reply", {
+            ticketId: currentTicketId,
+            messages: [
+              {
+                role: "system",
+                content: "You are a helpful AI support assistant. Be concise and friendly.",
+              },
+              ...messages.map((m) => ({
+                role: m.sender === "customer" ? "user" : "assistant",
+                content: m.text,
+              })),
+              { role: "user", content: messageText },
+            ],
+          });
 
-            // Don't manually add messages - let realtime subscription handle everything
-            // This prevents duplicates. The realtime subscription will:
-            // 1. Add customer message (if not first message)
-            // 2. Add AI reply message
-            // 3. Add system transfer message (if transfer happened)
-          } else {
-            // Ticket is with agent or closed, realtime will add the customer message
-            setIsLoading(false);
-          }
+        } catch (aiError: any) {
+          // AI response failed - log but don't show error to user
+          // The realtime subscription will handle adding the message if it eventually succeeds
+          console.error("Error generating AI response:", aiError);
+          // Don't show error to user - ticket might still be processed
+          setIsLoading(false);
+        }
+      } else {
+        // Ticket is with agent or closed, realtime will add the customer message
+        setIsLoading(false);
+      }
     } catch (error: any) {
       console.error("Error sending message:", error);
+      // Remove the optimistically added message if send failed
+      setMessages((m) => m.filter((msg, idx) => !(idx === m.length - 1 && msg.sender === "customer" && msg.text === messageText)));
       setMessages((m) => [
         ...m,
-        { sender: "ai", text: error.message || "Sorry, I encountered an error. Please try again." },
+        { sender: "ai", text: "Sorry, I encountered an error. Please try again." },
       ]);
       setIsLoading(false);
     }
@@ -324,7 +486,13 @@ export default function Widget() {
         )}
       </div>
 
-             <MessageList messages={messages} isLoading={isLoading} isAgentTyping={isAgentTyping} ticketLanguage={ticketLanguage || undefined} />
+             <MessageList messages={messages} isLoading={isLoading} isAgentTyping={isAgentTyping} />
+      
+      {/* Customer Satisfaction */}
+      {ticketStatus === "closed" && ticketId && (
+        <CustomerSatisfaction ticketId={ticketId} />
+      )}
+
       {!isConnected && (
         <div className="px-4 py-2 bg-yellow-50 border-t border-yellow-200">
           <p className="text-xs text-yellow-800">
@@ -346,23 +514,25 @@ export default function Widget() {
         </div>
       )}
 
-      <div className="mt-auto border-t bg-gray-50">
-        <Composer
-          input={input}
-          setInput={setInput}
-          onSend={() => sendMessage()}
-          onKeyPress={handleKeyPress}
-          isLoading={isLoading}
-        />
-        {ticketId && (
-          <button
-            onClick={requestHumanSupport}
-            className="w-full px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 border-t"
-          >
-            Request human support
-          </button>
-        )}
-      </div>
+      {ticketStatus !== "closed" && (
+        <div className="mt-auto border-t bg-gray-50">
+          <Composer
+            input={input}
+            setInput={setInput}
+            onSend={() => sendMessage()}
+            onKeyPress={handleKeyPress}
+            isLoading={isLoading}
+          />
+          {ticketId && ticketStatus === "open" && (
+            <button
+              onClick={requestHumanSupport}
+              className="w-full px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 border-t"
+            >
+              Request human support
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

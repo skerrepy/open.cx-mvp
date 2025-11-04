@@ -13,10 +13,9 @@ interface MessageListProps {
   messages: Message[];
   isLoading: boolean;
   isAgentTyping?: boolean;
-  ticketLanguage?: string;
 }
 
-export default function MessageList({ messages, isLoading, isAgentTyping = false, ticketLanguage }: MessageListProps) {
+export default function MessageList({ messages, isLoading, isAgentTyping = false }: MessageListProps) {
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-3">
       {messages.map((m, i) => {
@@ -40,13 +39,6 @@ export default function MessageList({ messages, isLoading, isAgentTyping = false
                   : "bg-gray-100 text-gray-800"
               }`}
             >
-              {isCustomer && ticketLanguage && (
-                <div className="flex items-center gap-1 mb-1">
-                  <span className="text-xs px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded-full">
-                    {ticketLanguage}
-                  </span>
-                </div>
-              )}
               {isAI ? (
                 <div className="text-sm prose prose-sm max-w-none break-words">
                   <ReactMarkdown

@@ -30,7 +30,7 @@ export default function MessengerView({ tickets, isLoading }: MessengerViewProps
   );
 
   return (
-    <div className="bg-white rounded-lg shadow-lg overflow-hidden flex h-[calc(100vh-12rem)] min-h-0">
+    <div className="bg-white rounded-lg shadow-lg overflow-hidden flex h-[calc(100vh-8rem)] min-h-0">
       {/* Sidebar - Ticket List */}
       <div className="w-80 border-r bg-gray-50 flex flex-col min-h-0">
         <div className="p-4 border-b bg-white">
@@ -146,6 +146,9 @@ function TicketChat({
     // Create a channel for typing indicators
     const typingChannel = supabase.channel(`typing:${ticketId}`);
     typingChannelRef.current = typingChannel;
+    
+    // Subscribe to the channel
+    typingChannel.subscribe();
 
     return () => {
       // Send stop typing when component unmounts
@@ -239,6 +242,23 @@ function TicketChat({
         ticket_id: ticketId,
         status: "closed",
       });
+
+    // Log the closure
+    await supabase.from("audit_logs").insert({
+      ticket_id: ticketId,
+      action_type: "ticket_closed",
+      actor_type: "agent",
+      details: {
+        closed_by: "agent", // Could be enhanced with actual user ID
+      },
+    });
+
+    // Trigger auto-summarization in background (don't wait for it)
+    fetch(`/api/tickets/${ticketId}/auto-summarize`, {
+      method: "POST",
+    }).catch((error) => {
+      console.error("Error triggering auto-summarization:", error);
+    });
 
     queryClient.invalidateQueries({ queryKey: ["ticket", ticketId] });
     queryClient.invalidateQueries({ queryKey: ["tickets"] });

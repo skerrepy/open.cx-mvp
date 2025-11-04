@@ -48,11 +48,27 @@ ${conversationText}`,
 
     const summary = completion.choices?.[0]?.message?.content || "Unable to generate summary.";
 
+    // Track token usage
+    const tokensUsed = completion.usage?.total_tokens || 0;
+    const promptTokens = completion.usage?.prompt_tokens || 0;
+    const completionTokens = completion.usage?.completion_tokens || 0;
+
     // Save summary to database
     const supabase = await createServerClient();
+    
+    // Update token usage
+    const { data: currentTicket } = await supabase
+      .from("tickets")
+      .select("ai_token_usage")
+      .eq("id", ticketId)
+      .single();
+    
     const { error: updateError } = await supabase
       .from("tickets")
-      .update({ summary })
+      .update({ 
+        summary,
+        ai_token_usage: (currentTicket?.ai_token_usage || 0) + tokensUsed
+      })
       .eq("id", ticketId);
 
     if (updateError) {
@@ -60,7 +76,20 @@ ${conversationText}`,
       // Still return the summary even if saving fails
     }
 
-    return NextResponse.json({ summary });
+    // Log the summarization
+    await supabase.from("audit_logs").insert({
+      ticket_id: ticketId,
+      action_type: "ticket_summarized",
+      actor_type: "ai",
+      details: {
+        tokens_used: tokensUsed,
+        prompt_tokens: promptTokens,
+        completion_tokens: completionTokens,
+        model: "gpt-4o-mini",
+      },
+    });
+
+    return NextResponse.json({ summary, tokensUsed });
   } catch (error) {
     console.error("OpenAI API error:", error);
     return NextResponse.json(

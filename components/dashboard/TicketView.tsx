@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import MessageBubble from "./MessageBubble";
+import TicketReviews from "./TicketReviews";
 import { useTicket, useSendMessage, useRealtimeMessages } from "@/lib/hooks";
 import { Message } from "@/lib/hooks/useTickets";
 import { supabase } from "@/lib/supabaseClient";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface TicketViewProps {
   ticketId: string;
@@ -67,6 +69,23 @@ export default function TicketView({ ticketId }: TicketViewProps) {
         ticket_id: ticketId,
         status: "closed",
       });
+
+    // Log the closure
+    await supabase.from("audit_logs").insert({
+      ticket_id: ticketId,
+      action_type: "ticket_closed",
+      actor_type: "agent",
+      details: {
+        closed_by: "agent",
+      },
+    });
+
+    // Trigger auto-summarization in background (don't wait for it)
+    fetch(`/api/tickets/${ticketId}/auto-summarize`, {
+      method: "POST",
+    }).catch((error) => {
+      console.error("Error triggering auto-summarization:", error);
+    });
 
     queryClient.invalidateQueries({ queryKey: ["ticket", ticketId] });
     queryClient.invalidateQueries({ queryKey: ["tickets"] });
@@ -150,11 +169,22 @@ export default function TicketView({ ticketId }: TicketViewProps) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
-        {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} ticketLanguage={ticket.language || undefined} />
-        ))}
-      </div>
+      <Tabs defaultValue="messages" className="flex-1 flex flex-col min-h-0">
+        <TabsList className="mx-4 mt-4">
+          <TabsTrigger value="messages">Messages</TabsTrigger>
+          <TabsTrigger value="reviews">Reviews</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="messages" className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50 mt-0">
+          {messages.map((message) => (
+            <MessageBubble key={message.id} message={message} ticketLanguage={ticket.language || undefined} />
+          ))}
+        </TabsContent>
+
+        <TabsContent value="reviews" className="flex-1 overflow-y-auto p-4 bg-gray-50 mt-0">
+          <TicketReviews ticketId={ticketId} isClosed={ticket.status === "closed"} />
+        </TabsContent>
+      </Tabs>
 
       {ticket.status !== "closed" ? (
         <div className="border-t bg-white p-4">
