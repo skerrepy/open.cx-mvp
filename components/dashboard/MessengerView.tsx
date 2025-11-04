@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Ticket } from "@/lib/hooks/useTickets";
 import { useTicket, useSendMessage, useRealtimeMessages } from "@/lib/hooks";
 import { supabase } from "@/lib/supabaseClient";
@@ -38,7 +40,7 @@ export default function MessengerView({ tickets, isLoading }: MessengerViewProps
           </p>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden">
           {isLoading ? (
             <div className="p-4 space-y-3">
               {[1, 2, 3].map((i) => (
@@ -58,24 +60,25 @@ export default function MessengerView({ tickets, isLoading }: MessengerViewProps
                   className={`w-full text-left p-4 hover:bg-gray-100 transition-colors ${
                     selectedTicketId === ticket.id ? "bg-blue-50 border-l-4 border-blue-600" : ""
                   }`}
-                  whileHover={{ x: 2 }}
                   transition={{ type: "spring", stiffness: 300 }}
                 >
                   <div className="flex justify-between items-start mb-1">
-                    <h3 className="font-medium text-gray-900 text-sm truncate flex-1">
-                      {ticket.subject || "No subject"}
-                    </h3>
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <h3 className="font-medium text-gray-900 text-sm truncate flex-1">
+                        {ticket.subject || "No subject"}
+                      </h3>
+                      {ticket.language && (
+                        <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full flex-shrink-0">
+                          {ticket.language}
+                        </span>
+                      )}
+                    </div>
                     <span className="ml-2 flex-shrink-0 w-2 h-2 bg-yellow-500 rounded-full"></span>
                   </div>
                   <div className="flex items-center justify-between">
                     <p className="text-xs text-gray-500 truncate">
                       {ticket.messages?.length || 0} messages
                     </p>
-                    {ticket.language && (
-                      <span className="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">
-                        {ticket.language}
-                      </span>
-                    )}
                   </div>
                   <p className="text-xs text-gray-400 mt-1">
                     {new Date(ticket.created_at).toLocaleDateString()}
@@ -117,6 +120,9 @@ function TicketChat({
   const { data: ticket, isLoading: ticketLoading } = useTicket(ticketId);
   const { mutate: sendMessage, isPending: isSending } = useSendMessage(ticketId);
   const [input, setInput] = useState("");
+  const [summary, setSummary] = useState<string | null>(null);
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [showSummary, setShowSummary] = useState(false);
   const queryClient = useQueryClient();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -124,6 +130,14 @@ function TicketChat({
 
   // Enable real-time updates
   useRealtimeMessages(ticketId);
+
+  // Load summary from ticket if it exists and show it automatically
+  useEffect(() => {
+    if (ticket?.summary) {
+      setSummary(ticket.summary);
+      setShowSummary(true);
+    }
+  }, [ticket?.summary]);
 
   // Set up typing indicator channel
   useEffect(() => {
@@ -237,6 +251,46 @@ function TicketChat({
     }
   };
 
+  const handleSummarize = async () => {
+    if (!ticket?.messages || ticket.messages.length === 0) {
+      alert("No messages to summarize");
+      return;
+    }
+
+    setIsSummarizing(true);
+    try {
+      const response = await fetch("/api/ai/summarize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ticketId,
+          messages: ticket.messages.map((msg: any) => ({
+            sender: msg.sender,
+            text: msg.text,
+          })),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to generate summary");
+      }
+
+      const data = await response.json();
+      setSummary(data.summary);
+      setShowSummary(true);
+      
+      // Refresh ticket data to get the saved summary
+      queryClient.invalidateQueries({ queryKey: ["ticket", ticketId] });
+    } catch (error) {
+      console.error("Error summarizing ticket:", error);
+      alert("Failed to generate summary. Please try again.");
+    } finally {
+      setIsSummarizing(false);
+    }
+  };
+
   if (ticketLoading) {
     return (
       <div className="flex-1 flex flex-col">
@@ -297,6 +351,14 @@ function TicketChat({
             </div>
           </div>
           <div className="flex gap-2">
+            <Button
+              onClick={handleSummarize}
+              variant="outline"
+              size="sm"
+              disabled={isSummarizing || !ticket?.messages || ticket.messages.length === 0}
+            >
+              {isSummarizing ? "Summarizing..." : "Summarize Ticket"}
+            </Button>
             {ticket.status !== "closed" && (
               <Button
                 onClick={handleCloseTicket}
@@ -316,6 +378,43 @@ function TicketChat({
           </div>
         </div>
       </div>
+
+      {/* Summary Section */}
+      {showSummary && summary && (
+        <div className="flex-shrink-0 border-b bg-blue-50 border-blue-200">
+          <div className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-semibold text-blue-900 flex items-center gap-2">
+                <span>📋</span>
+                Conversation Summary
+              </h3>
+              <Button
+                onClick={() => setShowSummary(false)}
+                variant="ghost"
+                size="sm"
+                className="h-6 w-6 p-0"
+              >
+                ×
+              </Button>
+            </div>
+            <div className="text-sm text-blue-800 prose prose-sm max-w-none">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                  ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                  ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+                  li: ({ children }) => <li className="ml-2">{children}</li>,
+                  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                  em: ({ children }) => <em className="italic">{children}</em>,
+                }}
+              >
+                {summary}
+              </ReactMarkdown>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Messages */}
       <div className="flex-1 min-h-0">

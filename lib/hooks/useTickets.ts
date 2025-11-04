@@ -9,6 +9,7 @@ export interface Ticket {
   customer_id: string | null;
   assignee_id: string | null;
   language?: string | null;
+  summary?: string | null;
   messages?: Message[];
 }
 
