@@ -13,16 +13,47 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const period = searchParams.get("period") || "30"; // days
+    const customDate = searchParams.get("date");
+
+    // Validate custom date period
+    if (period === "custom" && !customDate) {
+      return NextResponse.json(
+        { error: "Date parameter is required for custom period" },
+        { status: 400 }
+      );
+    }
 
     const supabase = await createServerClient();
-    const daysAgo = new Date();
-    daysAgo.setDate(daysAgo.getDate() - parseInt(period));
+    
+    let ticketsQuery = supabase
+      .from("tickets")
+      .select("id, ai_token_usage, created_at");
+
+    if (period === "custom" && customDate) {
+      // For custom date, filter for that specific day
+      const startOfDay = new Date(customDate);
+      if (isNaN(startOfDay.getTime())) {
+        return NextResponse.json(
+          { error: "Invalid date format" },
+          { status: 400 }
+        );
+      }
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(customDate);
+      endOfDay.setHours(23, 59, 59, 999);
+      
+      ticketsQuery = ticketsQuery
+        .gte("created_at", startOfDay.toISOString())
+        .lte("created_at", endOfDay.toISOString());
+    } else {
+      // For regular periods, use days ago
+      const daysAgo = new Date();
+      daysAgo.setDate(daysAgo.getDate() - parseInt(period));
+      ticketsQuery = ticketsQuery.gte("created_at", daysAgo.toISOString());
+    }
 
     // Get all tickets in the period
-    const { data: tickets, error: ticketsError } = await supabase
-      .from("tickets")
-      .select("id, ai_token_usage, created_at")
-      .gte("created_at", daysAgo.toISOString());
+    const { data: tickets, error: ticketsError } = await ticketsQuery;
 
     if (ticketsError) throw ticketsError;
 
@@ -40,14 +71,40 @@ export async function GET(req: Request) {
       statusData = statuses || [];
     }
 
-    // Get audit logs for token breakdown
+    // Get all messages for tickets in period to calculate AI message percentage
+    let messagesData: any[] = [];
+    if (ticketIds.length > 0) {
+      const { data: messages, error: messagesError } = await supabase
+        .from("messages")
+        .select("ticket_id, sender")
+        .in("ticket_id", ticketIds);
+
+      if (!messagesError) {
+        messagesData = messages || [];
+      }
+    }
+
+    // Get audit logs for token breakdown and cost calculation
     let auditLogs: any[] = [];
     if (ticketIds.length > 0) {
+      // Calculate the start date for audit logs based on period
+      let auditLogsStartDate: Date;
+      if (period === "custom" && customDate) {
+        // For custom date, use the start of that day
+        auditLogsStartDate = new Date(customDate);
+        auditLogsStartDate.setHours(0, 0, 0, 0);
+      } else {
+        // For regular periods, use days ago
+        auditLogsStartDate = new Date();
+        auditLogsStartDate.setDate(auditLogsStartDate.getDate() - parseInt(period));
+      }
+
       const { data: logs, error: logsError } = await supabase
         .from("audit_logs")
-        .select("ticket_id, details, action_type")
+        .select("ticket_id, details, action_type, created_at")
         .in("ticket_id", ticketIds)
-        .in("action_type", ["ai_response", "ticket_summarized"]);
+        .in("action_type", ["ai_response", "ticket_summarized"])
+        .gte("created_at", auditLogsStartDate.toISOString());
 
       if (!logsError) {
         auditLogs = logs || [];
@@ -73,35 +130,38 @@ export async function GET(req: Request) {
       if (currentStatus === "closed") {
         totalClosed++;
         
-        // Get all statuses for this ticket, sorted by date
-        const ticketStatuses = statusData
-          .filter((s) => s.ticket_id === ticketId)
-          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        // Get all statuses for this ticket
+        const ticketStatuses = statusData.filter((s) => s.ticket_id === ticketId);
         
-        // Check if ticket had human assistance at any point
+        // Check if ticket had "needs_human_assistance" status at any point
         const hadHumanAssistance = ticketStatuses.some(
           (s) => s.status === "needs_human_assistance"
         );
         
-        // Check if ticket was ever in "ai_resolved" status
-        const wasAiResolved = ticketStatuses.some(
-          (s) => s.status === "ai_resolved"
-        );
+        // Get all messages for this ticket
+        const ticketMessages = messagesData.filter((m) => m.ticket_id === ticketId);
+        const totalMessages = ticketMessages.length;
+        const aiMessages = ticketMessages.filter((m) => m.sender === "ai").length;
         
-        // Determine resolution type
-        if (hadHumanAssistance && wasAiResolved) {
-          // Ticket went through both AI and human - mixed
-          mixedCount++;
-        } else if (hadHumanAssistance && !wasAiResolved) {
-          // Ticket went directly to human without AI resolution - human resolved
-          humanResolvedCount++;
-        } else if (wasAiResolved && !hadHumanAssistance) {
-          // Ticket was resolved by AI without human assistance - AI resolved
+        // Calculate AI message percentage
+        const aiMessagePercentage = totalMessages > 0 ? (aiMessages / totalMessages) * 100 : 0;
+        
+        // Determine resolution type based on new logic:
+        // 1. If NO "needs_human_assistance" → AI fully resolved
+        // 2. If YES "needs_human_assistance" AND AI >= 40% messages → Mixed/Hybrid
+        // 3. If YES "needs_human_assistance" AND AI < 40% messages → Human resolved
+        if (!hadHumanAssistance) {
+          // No human assistance requested → AI fully resolved
           aiResolvedCount++;
         } else {
-          // Ticket was closed without going through ai_resolved or needs_human_assistance
-          // This could be closed directly (e.g., by customer), count as human resolved
-          humanResolvedCount++;
+          // Human assistance was requested
+          if (aiMessagePercentage >= 40) {
+            // AI sent 40% or more messages → Mixed/Hybrid
+            mixedCount++;
+          } else {
+            // AI sent less than 40% messages → Human resolved
+            humanResolvedCount++;
+          }
         }
       }
     });
@@ -125,12 +185,13 @@ export async function GET(req: Request) {
 
     const estimatedCost = calculateCost(totalPromptTokens, totalCompletionTokens);
 
-    // Get customer satisfaction ratings
+    // Get customer satisfaction ratings and reviews
     const { data: reviews, error: reviewsError } = await supabase
       .from("ticket_reviews")
-      .select("rating")
+      .select("id, ticket_id, rating, comment, created_at")
       .eq("reviewer_type", "customer")
-      .in("ticket_id", ticketIds.length > 0 ? ticketIds : [""]);
+      .in("ticket_id", ticketIds.length > 0 ? ticketIds : [""])
+      .order("created_at", { ascending: false });
 
     const avgSatisfaction = reviews && reviews.length > 0
       ? reviews.reduce((sum, r) => sum + (r.rating || 0), 0) / reviews.length
@@ -138,8 +199,99 @@ export async function GET(req: Request) {
 
     const totalTickets = tickets?.length || 0;
 
+    // Generate time-series data for charts
+    const chartData: any[] = [];
+    let periodDays: number;
+    let startDate: Date;
+    
+    if (period === "custom" && customDate) {
+      // For custom date, show only that single day
+      periodDays = 1;
+      startDate = new Date(customDate);
+    } else {
+      periodDays = parseInt(period);
+      startDate = new Date();
+    }
+    
+    // Create data points for each day in the period
+    for (let i = periodDays - 1; i >= 0; i--) {
+      const date = new Date(startDate);
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      
+      // Get tickets that were closed on this day
+      // We need to find tickets where the "closed" status was created on this date
+      const closedTicketsForDay = new Set<string>();
+      statusData.forEach((status) => {
+        const statusDate = new Date(status.created_at).toISOString().split('T')[0];
+        if (statusDate === dateStr && status.status === "closed") {
+          closedTicketsForDay.add(status.ticket_id);
+        }
+      });
+
+      let dayAiResolved = 0;
+      let dayHumanResolved = 0;
+      let dayMixed = 0;
+      let dayTokens = 0;
+      let dayCost = 0;
+
+      closedTicketsForDay.forEach((ticketId) => {
+        const ticketStatuses = statusData.filter((s) => s.ticket_id === ticketId);
+        const hadHumanAssistance = ticketStatuses.some(
+          (s) => s.status === "needs_human_assistance"
+        );
+        const ticketMessages = messagesData.filter((m) => m.ticket_id === ticketId);
+        const totalMessages = ticketMessages.length;
+        const aiMessages = ticketMessages.filter((m) => m.sender === "ai").length;
+        const aiMessagePercentage = totalMessages > 0 ? (aiMessages / totalMessages) * 100 : 0;
+
+        if (!hadHumanAssistance) {
+          dayAiResolved++;
+        } else if (aiMessagePercentage >= 40) {
+          dayMixed++;
+        } else {
+          dayHumanResolved++;
+        }
+      });
+
+      // Get tokens and cost for this day from audit logs
+      // Filter audit logs by the date they were created (when API calls happened)
+      const dayLogs = auditLogs.filter(log => {
+        if (!log.created_at) return false;
+        const logDate = new Date(log.created_at).toISOString().split('T')[0];
+        return logDate === dateStr;
+      });
+
+      // Calculate tokens and cost from audit logs for this day
+      dayLogs.forEach(log => {
+        if (log.details?.tokens_used) {
+          dayTokens += log.details.tokens_used;
+        }
+        
+        if (log.details?.prompt_tokens !== undefined && log.details?.completion_tokens !== undefined) {
+          dayCost += calculateCost(log.details.prompt_tokens, log.details.completion_tokens);
+        } else if (log.details?.tokens_used) {
+          // Fallback: estimate cost from total tokens if prompt/completion breakdown not available
+          // Assuming 70% prompt, 30% completion ratio
+          const estimatedPromptTokens = log.details.tokens_used * 0.7;
+          const estimatedCompletionTokens = log.details.tokens_used * 0.3;
+          dayCost += calculateCost(estimatedPromptTokens, estimatedCompletionTokens);
+        }
+      });
+
+      chartData.push({
+        date: dateStr,
+        day: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        aiResolved: dayAiResolved,
+        humanResolved: dayHumanResolved,
+        mixed: dayMixed,
+        tokens: dayTokens,
+        cost: dayCost,
+      });
+    }
+
     return NextResponse.json({
-      period: parseInt(period),
+      period: period === "custom" ? (customDate ? 1 : 0) : parseInt(period),
       totals: {
         tickets: totalTickets,
         closed: totalClosed,
@@ -164,7 +316,9 @@ export async function GET(req: Request) {
       satisfaction: {
         average: avgSatisfaction,
         totalRatings: reviews?.length || 0,
+        reviews: reviews || [],
       },
+      chartData: chartData,
     });
   } catch (error) {
     console.error("Error fetching analytics:", error);
@@ -174,4 +328,5 @@ export async function GET(req: Request) {
     );
   }
 }
+
 

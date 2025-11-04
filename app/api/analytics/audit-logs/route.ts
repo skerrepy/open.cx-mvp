@@ -6,15 +6,32 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const ticketId = searchParams.get("ticketId");
     const period = searchParams.get("period") || "30"; // days
+    const customDate = searchParams.get("date");
 
     const supabase = await createServerClient();
-    const daysAgo = new Date();
-    daysAgo.setDate(daysAgo.getDate() - parseInt(period));
-
+    
     let query = supabase
       .from("audit_logs")
-      .select("*")
-      .gte("created_at", daysAgo.toISOString())
+      .select("*");
+
+    if (period === "custom" && customDate) {
+      // For custom date, filter for that specific day
+      const startOfDay = new Date(customDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(customDate);
+      endOfDay.setHours(23, 59, 59, 999);
+      
+      query = query
+        .gte("created_at", startOfDay.toISOString())
+        .lte("created_at", endOfDay.toISOString());
+    } else {
+      // For regular periods, use days ago
+      const daysAgo = new Date();
+      daysAgo.setDate(daysAgo.getDate() - parseInt(period));
+      query = query.gte("created_at", daysAgo.toISOString());
+    }
+
+    query = query
       .order("created_at", { ascending: false })
       .limit(1000);
 

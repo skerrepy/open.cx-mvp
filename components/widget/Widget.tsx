@@ -586,14 +586,6 @@ export default function Widget() {
             onKeyPress={handleKeyPress}
             isLoading={isLoading}
           />
-          {ticketId && ticketStatus === "open" && (
-            <button
-              onClick={requestHumanSupport}
-              className="w-full px-4 py-2 text-sm text-blue-600 hover:bg-blue-50 border-t"
-            >
-              Request human support
-            </button>
-          )}
         </div>
       )}
     </div>
