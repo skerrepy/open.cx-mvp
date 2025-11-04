@@ -225,6 +225,39 @@ Be helpful, confident, and informative. Only add the transfer marker when truly 
       }
     }
 
+    // Check if conversation is complete and suggest closing
+    let suggestEndChat = false;
+    if (ticketId && !wantsHumanAgent && !needsCustomerInfo) {
+      // Use AI to determine if the conversation is complete
+      try {
+        const completionCheck = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: "You are analyzing a customer support conversation. Determine if the customer's issue has been fully resolved and they are satisfied. Return ONLY 'YES' if the conversation is complete and the customer is satisfied, or 'NO' if more assistance is needed.",
+            },
+            {
+              role: "user",
+              content: `Based on this conversation, is the customer's issue resolved and are they satisfied?\n\nConversation:\n${messages.map((m: any) => `${m.role}: ${m.content}`).join('\n')}\n\nAI Response: ${reply}`,
+            },
+          ],
+          temperature: 0.1,
+          max_tokens: 10,
+        });
+
+        const isComplete = completionCheck.choices?.[0]?.message?.content?.trim().toUpperCase() === "YES";
+        if (isComplete) {
+          suggestEndChat = true;
+          // Modify reply to include suggestion to end chat
+          reply = reply + "\n\nIf you're all set, feel free to end the chat using the button below!";
+        }
+      } catch (error) {
+        // If check fails, don't suggest closing
+        console.error("Error checking conversation completion:", error);
+      }
+    }
+
     // Save AI reply to database if ticketId is provided
     if (ticketId) {
       await supabase.from("messages").insert({
@@ -303,7 +336,8 @@ Be helpful, confident, and informative. Only add the transfer marker when truly 
       reply, 
       text: reply,
       transferToAgent: wantsHumanAgent && !needsCustomerInfo,
-      needsCustomerInfo: needsCustomerInfo
+      needsCustomerInfo: needsCustomerInfo,
+      suggestEndChat: suggestEndChat
     });
   } catch (error) {
     console.error("OpenAI API error:", error);

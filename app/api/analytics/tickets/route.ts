@@ -54,12 +54,12 @@ export async function GET(req: Request) {
       }
     }
 
-    // Calculate resolution stats
-    const ticketStatusMap = new Map<string, string>();
+    // Calculate resolution stats - get latest status for each ticket
+    const ticketStatusMap = new Map<string, { status: string; created_at: string }>();
     statusData.forEach((status) => {
       const existing = ticketStatusMap.get(status.ticket_id);
-      if (!existing || new Date(status.created_at) > new Date(existing)) {
-        ticketStatusMap.set(status.ticket_id, status.status);
+      if (!existing || new Date(status.created_at) > new Date(existing.created_at)) {
+        ticketStatusMap.set(status.ticket_id, { status: status.status, created_at: status.created_at });
       }
     });
 
@@ -68,25 +68,40 @@ export async function GET(req: Request) {
     let mixedCount = 0;
     let totalClosed = 0;
 
-    ticketStatusMap.forEach((status, ticketId) => {
-      if (status === "closed") {
+    ticketStatusMap.forEach((statusInfo, ticketId) => {
+      const currentStatus = statusInfo.status;
+      if (currentStatus === "closed") {
         totalClosed++;
-        // Check if ticket had human assistance
-        const hadHumanAssistance = statusData.some(
-          (s) => s.ticket_id === ticketId && s.status === "needs_human_assistance"
+        
+        // Get all statuses for this ticket, sorted by date
+        const ticketStatuses = statusData
+          .filter((s) => s.ticket_id === ticketId)
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        
+        // Check if ticket had human assistance at any point
+        const hadHumanAssistance = ticketStatuses.some(
+          (s) => s.status === "needs_human_assistance"
         );
-        if (hadHumanAssistance) {
+        
+        // Check if ticket was ever in "ai_resolved" status
+        const wasAiResolved = ticketStatuses.some(
+          (s) => s.status === "ai_resolved"
+        );
+        
+        // Determine resolution type
+        if (hadHumanAssistance && wasAiResolved) {
+          // Ticket went through both AI and human - mixed
           mixedCount++;
+        } else if (hadHumanAssistance && !wasAiResolved) {
+          // Ticket went directly to human without AI resolution - human resolved
+          humanResolvedCount++;
+        } else if (wasAiResolved && !hadHumanAssistance) {
+          // Ticket was resolved by AI without human assistance - AI resolved
+          aiResolvedCount++;
         } else {
-          // Check if it was ever in "ai_resolved" status
-          const wasAiResolved = statusData.some(
-            (s) => s.ticket_id === ticketId && s.status === "ai_resolved"
-          );
-          if (wasAiResolved) {
-            aiResolvedCount++;
-          } else {
-            humanResolvedCount++;
-          }
+          // Ticket was closed without going through ai_resolved or needs_human_assistance
+          // This could be closed directly (e.g., by customer), count as human resolved
+          humanResolvedCount++;
         }
       }
     });

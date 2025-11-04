@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useTickets } from "@/lib/hooks";
+import { useState, useEffect, useRef } from "react";
+import { useTickets, useRealtimeTickets } from "@/lib/hooks";
+import { supabase } from "@/lib/supabaseClient";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -43,11 +44,10 @@ export default function AdminDashboard() {
   const [period, setPeriod] = useState("30");
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
+  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
-    fetchAnalytics();
-    fetchAuditLogs();
-  }, [period]);
+  // Enable real-time updates for tickets
+  useRealtimeTickets();
 
   const fetchAnalytics = async () => {
     setAnalyticsLoading(true);
@@ -74,6 +74,45 @@ export default function AdminDashboard() {
       setLogsLoading(false);
     }
   };
+
+  // Initial fetch and fetch on period change
+  useEffect(() => {
+    fetchAnalytics();
+    fetchAuditLogs();
+  }, [period]);
+
+  // Listen for ticket status changes and refresh analytics
+  useEffect(() => {
+    const channel = supabase
+      .channel("admin-analytics-updates")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "ticket_statuses",
+        },
+        () => {
+          // Debounce refresh to avoid too many API calls
+          if (refreshTimeoutRef.current) {
+            clearTimeout(refreshTimeoutRef.current);
+          }
+          
+          refreshTimeoutRef.current = setTimeout(() => {
+            fetchAnalytics();
+            fetchAuditLogs();
+          }, 1000);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
+      supabase.removeChannel(channel);
+    };
+  }, [period]); // Refresh when period changes
 
   return (
     <div className="space-y-4">

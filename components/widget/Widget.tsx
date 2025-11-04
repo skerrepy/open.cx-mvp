@@ -15,6 +15,8 @@ interface WidgetMessage {
   sender: string;
   text: string;
   createdAt?: string;
+  suggestEndChat?: boolean;
+  id?: string;
 }
 
 export default function Widget() {
@@ -50,12 +52,18 @@ export default function Widget() {
       if (!error && existingMessages) {
         // Replace welcome message with actual messages from database
         setMessages(
-          existingMessages.map((msg) => ({
-            sender: msg.sender,
-            text: msg.text,
-            createdAt: msg.created_at,
-            id: msg.id,
-          }))
+          existingMessages.map((msg) => {
+            const shouldSuggestEndChat = msg.sender === "ai" && 
+              msg.text.includes("end the chat using the button below");
+            
+            return {
+              sender: msg.sender,
+              text: msg.text,
+              createdAt: msg.created_at,
+              id: msg.id,
+              suggestEndChat: shouldSuggestEndChat,
+            };
+          })
         );
       }
 
@@ -137,11 +145,16 @@ export default function Widget() {
                     }
 
                     // Add new message
+                    // Check if this message should suggest end chat by checking if it contains the suggestion text
+                    const shouldSuggestEndChat = newMessage.sender === "ai" && 
+                      newMessage.text.includes("end the chat using the button below");
+                    
                     const widgetMessage: WidgetMessage & { id?: string } = {
                       sender: newMessage.sender,
                       text: newMessage.text,
                       createdAt: newMessage.created_at,
                       id: newMessage.id, // Store ID for better duplicate detection
+                      suggestEndChat: shouldSuggestEndChat,
                     };
 
                     // Stop loading when we receive AI or system messages
@@ -344,6 +357,14 @@ export default function Widget() {
     setInput("");
     setIsLoading(true);
 
+    // Add message optimistically immediately (before any async operations)
+    const userMsg: WidgetMessage = { 
+      sender: "customer", 
+      text: messageText,
+      createdAt: new Date().toISOString()
+    };
+    setMessages((m) => [...m, userMsg]);
+
     try {
       let currentTicketId = ticketId;
       let ticketStatus = "open";
@@ -367,24 +388,8 @@ export default function Widget() {
           console.error("Language detection error:", err);
           // Fail silently - don't block message sending
         });
-        
-        // Optimistically add user message only for first message (before realtime subscription is active)
-        const userMsg: WidgetMessage = { 
-          sender: "customer", 
-          text: messageText,
-          createdAt: new Date().toISOString()
-        };
-        setMessages((m) => [...m, userMsg]);
       } else {
-        // Add message optimistically first (instant UI update)
-        const userMsg: WidgetMessage = { 
-          sender: "customer", 
-          text: messageText,
-          createdAt: new Date().toISOString()
-        };
-        setMessages((m) => [...m, userMsg]);
-
-        // Then send to server (realtime will add it again, but we'll handle duplicates)
+        // Send to server (realtime will add it again, but we'll handle duplicates)
         await sendMessageMutation.mutateAsync({
           text: messageText,
           sender: "customer",
@@ -425,6 +430,20 @@ export default function Widget() {
             ],
           });
 
+          // If AI suggests ending chat, update the latest AI message to show the button
+          if (aiResponse.data.suggestEndChat) {
+            setMessages((prev) => {
+              const updated = [...prev];
+              // Find the last AI message and add suggestEndChat flag
+              for (let i = updated.length - 1; i >= 0; i--) {
+                if (updated[i].sender === "ai") {
+                  updated[i] = { ...updated[i], suggestEndChat: true };
+                  break;
+                }
+              }
+              return updated;
+            });
+          }
         } catch (aiError: any) {
           // AI response failed - log but don't show error to user
           // The realtime subscription will handle adding the message if it eventually succeeds
@@ -475,6 +494,50 @@ export default function Widget() {
     });
   };
 
+  const handleEndChat = async () => {
+    if (!ticketId) return;
+
+    try {
+      // Close the ticket
+      await supabase
+        .from("ticket_statuses")
+        .insert({
+          ticket_id: ticketId,
+          status: "closed",
+        });
+
+      // Log the closure
+      await supabase.from("audit_logs").insert({
+        ticket_id: ticketId,
+        action_type: "ticket_closed",
+        actor_type: "customer",
+        details: {
+          closed_by: "customer",
+          reason: "end_chat_button",
+        },
+      });
+
+      // Add system message
+      await supabase.from("messages").insert({
+        ticket_id: ticketId,
+        sender: "system",
+        text: "Chat ended. Thank you for contacting us!",
+      });
+
+      // Update local status
+      setTicketStatus("closed");
+
+      // Trigger auto-summarization in background
+      fetch(`/api/tickets/${ticketId}/auto-summarize`, {
+        method: "POST",
+      }).catch((error) => {
+        console.error("Error triggering auto-summarization:", error);
+      });
+    } catch (error) {
+      console.error("Error closing chat:", error);
+    }
+  };
+
   return (
     <div className="w-full h-full bg-white flex flex-col rounded-lg shadow-lg overflow-hidden">
       <div className="bg-blue-600 text-white p-4">
@@ -486,7 +549,7 @@ export default function Widget() {
         )}
       </div>
 
-             <MessageList messages={messages} isLoading={isLoading} isAgentTyping={isAgentTyping} />
+             <MessageList messages={messages} isLoading={isLoading} isAgentTyping={isAgentTyping} onEndChat={handleEndChat} />
       
       {/* Customer Satisfaction */}
       {ticketStatus === "closed" && ticketId && (
