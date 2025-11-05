@@ -117,7 +117,7 @@ Admins can fine-tune the AI's performance:
 
 -----
 
-## 🛠️ Tech Stack
+##  Tech Stack
 
 ### Frontend
 
@@ -134,7 +134,7 @@ Admins can fine-tune the AI's performance:
 
 -----
 
-## 🗄️ Database Schema (High-Level)
+##  Database Schema (High-Level)
 
 The high-level database architecture consists of the following key tables:
 
@@ -152,7 +152,7 @@ Full schema is available in: `supabase-setup.sql`
 
 -----
 
-## ⚙️ Installation
+##  Installation
 
 ```bash
 git clone https://github.com/skerrepy/open.cx-mvp
@@ -184,12 +184,12 @@ SUPABASE_SERVICE_ROLE_KEY=
 NODE_ENV=development
 ```
 
-### 🔗 Embedding the Widget
+###  Embedding the Widget
 
 Copy the embed code from `Settings → Widget Embed Code` in the dashboard, or use this format:
 
 ```html
-<script src="https://supportai.vercel.app/embed.js" ></script>
+<script src="https://open-cx-mvp.vercel.app/embed.js" ></script>
 ```
 
 -----
@@ -198,11 +198,15 @@ Copy the embed code from `Settings → Widget Embed Code` in the dashboard, or u
 
 | Area | Decision | Tradeoff | Reasoning |
 | :--- | :--- | :--- | :--- |
-| **Auth** | Simple single-user ownership model | No multi-tenant orgs & roles yet | Prioritized core flows $\rightarrow$ faster shipping. |
-| **AI Model** | GPT-4o-mini | Slightly less nuanced than full GPT-4 | Optimized for **real-time feel** and token cost. |
-| **Widget** | Simple `<script>` embed | Limited deep customization for now | Prioritized onboarding simplicity. |
-| **Summarization** | Happens once per ticket after 3 messages | May miss very late details | Saves token cost + improves performance. |
-| **Knowledge Base** | Store business info as free-text context | No PDF/doc crawling or RAG yet | Leaves clean upgrade path. |
+| **Auth & User Model** | Single-business / single-workspace setup with basic login | No multi-tenant organizations, no role-based access yet | Full multi-org support requires org membership, role permissions, workspace switching, and billing logic. For this test, we **prioritized core product functionality** over SaaS scaling complexity. |
+| **Embeddable Widget** | Simple `<script>` embed that mounts a React widget | Limited customization (theme, behavior overrides) for now | Focused on fast integration — one line of code $\rightarrow$ working AI chat. Advanced customization can be layered later. |
+| **AI Model** | Use GPT-4o-mini for dialog + summarization + tagging | This ties us to OpenAI for now; companies wanting internal / on-prem models will require model abstraction later | GPT-4o-mini balances cost, speed, reliability. Future step: pluggable model adapter system. |
+| **Ticket Summarization** | Summaries generated when tickets reach meaningful message depth ($\ge 3$ messages) | May miss context if late messages contain critical info | Greatly reduces inference cost and latency, especially for chatty conversations. |
+| **Tagging & Insights** | Automatic keyword tagging + daily insights aggregation using existing ticket summaries | Insights may be less granular than full conversation-level LLM analysis | Uses data we already have $\rightarrow$ maximum value with minimal computation. Future upgrade: conversation semantic clustering. |
+| **Knowledge Base / Business Context** | Owner provides free-text business description, tone, FAQs in Settings | No document ingestion, crawling, or retrieval at this stage | Simplicity = faster iteration. Future path is clear $\rightarrow$ add RAG + embeddings + crawlers later without redesigning core system. |
+| **Admin Analytics** | Light “Insights” tab + cached daily summaries | Not real-time, and not fully queryable/customizable | Avoids building a complex analytics pipeline. Value-first, complexity-later approach. |
+| **Database & Backend** | Supabase (Postgres + Auth + Realtime) | Vendor lock-in tradeoff + Supabase costs scale with usage | Supabase allows fast development with secure defaults. Data remains portable because it’s standard Postgres. We accept the tradeoff to ship quickly and reliably. |
+| **Testing / Stability** | Manual end-to-end verification during development | No automated regression testing yet | Timeboxed project $\rightarrow$ optimize for feature completeness and UX polish. Tests can be layered in once architecture stabilizes. |
 
 ### Future KB Expansion Path
 

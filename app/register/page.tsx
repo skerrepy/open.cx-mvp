@@ -14,6 +14,8 @@ import { Loader2 } from "lucide-react";
 
 export default function RegisterPage() {
   const router = useRouter();
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -40,6 +42,9 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
+      // Combine first name and last name into display_name
+      const displayName = `${firstName.trim()} ${lastName.trim()}`.trim();
+
       const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
@@ -47,6 +52,9 @@ export default function RegisterPage() {
           emailRedirectTo: typeof window !== "undefined" 
             ? `${window.location.origin}/dashboard` 
             : "/dashboard",
+          data: {
+            display_name: displayName,
+          },
         },
       });
 
@@ -110,6 +118,44 @@ export default function RegisterPage() {
                 transition={{ delay: 0.2 }}
                 className="space-y-2"
               >
+                <Label htmlFor="firstName">First Name</Label>
+                <Input
+                  id="firstName"
+                  type="text"
+                  placeholder="John"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  required
+                  disabled={loading}
+                  autoComplete="given-name"
+                />
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.25 }}
+                className="space-y-2"
+              >
+                <Label htmlFor="lastName">Last Name</Label>
+                <Input
+                  id="lastName"
+                  type="text"
+                  placeholder="Doe"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  required
+                  disabled={loading}
+                  autoComplete="family-name"
+                />
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.3 }}
+                className="space-y-2"
+              >
                 <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
@@ -126,7 +172,7 @@ export default function RegisterPage() {
               <motion.div
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.3 }}
+                transition={{ delay: 0.4 }}
                 className="space-y-2"
               >
                 <Label htmlFor="password">Password</Label>
@@ -146,7 +192,7 @@ export default function RegisterPage() {
               <motion.div
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.4 }}
+                transition={{ delay: 0.5 }}
                 className="space-y-2"
               >
                 <Label htmlFor="confirmPassword">Confirm Password</Label>
@@ -166,7 +212,7 @@ export default function RegisterPage() {
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.5 }}
+                transition={{ delay: 0.6 }}
               >
                 <Button
                   type="submit"
@@ -188,7 +234,7 @@ export default function RegisterPage() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.6 }}
+              transition={{ delay: 0.7 }}
               className="mt-4 text-center text-sm"
             >
               <span className="text-muted-foreground">Already have an account? </span>
