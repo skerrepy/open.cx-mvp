@@ -189,7 +189,7 @@ NODE_ENV=development
 Copy the embed code from `Settings → Widget Embed Code` in the dashboard, or use this format:
 
 ```html
-<script src="https://supportai.vercel.app/embed.js" data-business-id="YOUR_ID"></script>
+<script src="https://supportai.vercel.app/embed.js" ></script>
 ```
 
 -----
