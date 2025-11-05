@@ -19,13 +19,16 @@ export async function middleware(request: NextRequest) {
 
     const response = NextResponse.next();
     
-    // Remove X-Frame-Options to allow embedding
+    // Remove X-Frame-Options to allow embedding from any origin
     response.headers.delete("X-Frame-Options");
     response.headers.delete("x-frame-options");
     
-    // Override CSP with permissive policy that allows embedding from any origin
-    // Use explicit scheme syntax to avoid browser parsing issues with *
-    response.headers.set("Content-Security-Policy", "frame-ancestors 'self' https: http:;");
+    // Remove CSP entirely to allow embedding from everywhere
+    // This is permissive for development/example purposes
+    response.headers.delete("Content-Security-Policy");
+    response.headers.delete("content-security-policy");
+    response.headers.delete("Content-Security-Policy-Report-Only");
+    response.headers.delete("content-security-policy-report-only");
     
     // Set CORS headers
     response.headers.set("Access-Control-Allow-Origin", "*");
