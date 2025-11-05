@@ -5,12 +5,31 @@ export async function middleware(request: NextRequest) {
   // Allow widget and embed.js to be accessed without auth checks
   const pathname = request.nextUrl.pathname;
   if (pathname === "/widget" || pathname === "/embed.js") {
+    // Handle CORS preflight requests
+    if (request.method === "OPTIONS") {
+      return new NextResponse(null, {
+        status: 200,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        },
+      });
+    }
+
     const response = NextResponse.next();
     // Set headers to allow iframe embedding from any origin
     // Remove X-Frame-Options to allow embedding (or it will block)
     response.headers.delete("X-Frame-Options");
-    response.headers.set("Content-Security-Policy", "frame-ancestors *;");
+    // Remove any existing CSP headers that might conflict
+    response.headers.delete("Content-Security-Policy");
+    // Set CSP to allow embedding from any origin
+    // Using * alone should work according to CSP spec
+    // If browser requires explicit schemes, this will allow https and http origins
+    response.headers.set("Content-Security-Policy", "frame-ancestors *");
     response.headers.set("Access-Control-Allow-Origin", "*");
+    response.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    response.headers.set("Access-Control-Allow-Headers", "Content-Type");
     return response;
   }
 

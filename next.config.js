@@ -18,12 +18,9 @@ const nextConfig = {
     return [
       {
         // Allow widget page to be embedded in iframes from any origin
+        // Note: CSP headers are set in middleware.ts to avoid conflicts
         source: '/widget',
         headers: [
-          {
-            key: 'Content-Security-Policy',
-            value: "frame-ancestors *;",
-          },
           {
             key: 'Access-Control-Allow-Origin',
             value: '*',
