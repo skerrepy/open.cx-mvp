@@ -92,6 +92,7 @@ export default function AdminDashboard() {
   const [period, setPeriod] = useState("30");
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [logsLoading, setLogsLoading] = useState(true);
+  const [ticketFlows, setTicketFlows] = useState<any[]>([]);
   const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [customDate, setCustomDate] = useState<Date | undefined>(undefined);
   const [firstTicketDate, setFirstTicketDate] = useState<Date | null>(null);
@@ -166,6 +167,22 @@ export default function AdminDashboard() {
 
     setLogsLoading(true);
     try {
+      // Fetch flow view for ticket status changes
+      let flowUrl = `/api/analytics/audit-logs?period=${period}&flow=true`;
+      if (period === "custom" && customDate) {
+        const dateStr = format(customDate, "yyyy-MM-dd");
+        flowUrl = `/api/analytics/audit-logs?period=custom&date=${dateStr}&flow=true`;
+      }
+      const flowResponse = await fetch(flowUrl);
+      const flowData = await flowResponse.json();
+      
+      if (flowData.error) {
+        console.error("Error from flow API:", flowData.error);
+      } else {
+        setTicketFlows(flowData.flows || []);
+      }
+
+      // Also fetch regular audit logs for backward compatibility
       let url = `/api/analytics/audit-logs?period=${period}`;
       if (period === "custom" && customDate) {
         const dateStr = format(customDate, "yyyy-MM-dd");
@@ -177,11 +194,9 @@ export default function AdminDashboard() {
       // Check if response has an error
       if (data.error) {
         console.error("Error from API:", data.error);
-        setLogsLoading(false);
-        return;
+      } else {
+        setAuditLogs(data.logs || []);
       }
-      
-      setAuditLogs(data.logs || []);
     } catch (error) {
       console.error("Error fetching audit logs:", error);
     } finally {
@@ -232,10 +247,19 @@ export default function AdminDashboard() {
   }, [period]);
 
   const formatCurrency = (value: number) => {
+    // For very small values, show more decimal places
+    if (value < 0.01) {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 6,
+        maximumFractionDigits: 6,
+      }).format(value);
+    }
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
-      minimumFractionDigits: 4,
+      minimumFractionDigits: 2,
       maximumFractionDigits: 4,
     }).format(value);
   };
@@ -772,54 +796,141 @@ export default function AdminDashboard() {
           <TabsContent value="audit" className="mt-0">
             <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">
               <CardHeader>
-                <CardTitle className="text-2xl font-bold text-slate-900">Audit Logs</CardTitle>
-                <CardDescription>All system interactions and ticket activities</CardDescription>
+                <CardTitle className="text-2xl font-bold text-slate-900">Ticket Status Flow</CardTitle>
+                <CardDescription>Status changes and triggers for each ticket</CardDescription>
               </CardHeader>
               <CardContent>
                 {logsLoading ? (
                   <div className="space-y-3">
                     {[1, 2, 3, 4, 5].map((i) => (
-                      <Skeleton key={i} className="h-20 rounded-xl" />
+                      <Skeleton key={i} className="h-32 rounded-xl" />
                     ))}
                   </div>
                 ) : (
-                  <div className="space-y-3 max-h-[600px] overflow-y-auto">
-                    {auditLogs.length === 0 ? (
+                  <div className="space-y-6 max-h-[600px] overflow-y-auto overflow-x-visible">
+                    {ticketFlows.length === 0 ? (
                       <div className="text-center py-12">
                         <MessageSquare className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                        <p className="text-slate-500">No audit logs found for the selected period</p>
+                        <p className="text-slate-500">No ticket flows found for the selected period</p>
                       </div>
                     ) : (
-                      auditLogs.map((log) => (
+                      ticketFlows.map((flow) => (
                         <div
-                          key={log.id}
-                          className="p-5 border border-slate-200 rounded-xl bg-white hover:shadow-lg transition-all duration-200 hover:border-blue-300"
+                          key={flow.ticketId}
+                          className="p-6 border border-slate-200 rounded-xl bg-white hover:shadow-lg transition-all duration-200 hover:border-blue-300 relative"
                         >
-                          <div className="flex justify-between items-start">
+                          <div className="flex justify-between items-start mb-4">
                             <div className="flex-1">
-                              <div className="font-semibold text-slate-900 mb-1">{log.action_type}</div>
-                              <div className="text-sm text-slate-600 flex items-center gap-2">
-                                <span className="px-2 py-1 bg-slate-100 rounded-md text-xs font-medium">
-                                  {log.actor_type}
-                                </span>
-                                <span>•</span>
-                                <span>{new Date(log.created_at).toLocaleString()}</span>
+                              <div className="font-semibold text-slate-900 mb-1">
+                                {flow.ticketSubject || `Ticket ${flow.ticketId.slice(0, 8)}`}
                               </div>
-                              {log.details?.tokens_used && (
-                                <div className="mt-2 text-xs text-slate-500 flex items-center gap-1">
-                                  <Zap className="w-3 h-3" />
-                                  <span>Tokens: {formatNumber(log.details.tokens_used)}</span>
+                              <div className="text-sm text-slate-600 mb-2">
+                                Created: {new Date(flow.ticketCreated).toLocaleString()}
+                              </div>
+                              {/* Ticket Stats */}
+                              <div className="flex flex-wrap gap-4 mt-2">
+                                <div className="flex items-center gap-2 text-sm">
+                                  <MessageSquare className="w-4 h-4 text-slate-500" />
+                                  <span className="text-slate-700">
+                                    <span className="font-semibold">{flow.stats?.messageCount || 0}</span> messages
+                                  </span>
                                 </div>
-                              )}
+                                <div className="flex items-center gap-2 text-sm">
+                                  <Zap className="w-4 h-4 text-amber-500" />
+                                  <span className="text-slate-700">
+                                    <span className="font-semibold">{formatNumber(flow.stats?.totalTokens || 0)}</span> tokens
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 text-sm">
+                                  <DollarSign className="w-4 h-4 text-emerald-500" />
+                                  <span className="text-slate-700">
+                                    <span className="font-semibold">{formatCurrency(flow.stats?.totalCost || 0)}</span> cost
+                                  </span>
+                                </div>
+                              </div>
                             </div>
-                            {log.ticket_id && (
-                              <Link
-                                href={`/dashboard/tickets/${log.ticket_id}`}
-                                className="ml-4 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-sm font-medium rounded-lg hover:shadow-lg transition-all duration-200"
-                              >
-                                View Ticket
-                              </Link>
-                            )}
+                            <Link
+                              href={`/dashboard/tickets/${flow.ticketId}`}
+                              className="ml-4 px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white text-sm font-medium rounded-lg hover:shadow-lg transition-all duration-200"
+                            >
+                              View Ticket
+                            </Link>
+                          </div>
+
+                          {/* Status Flow Visualization */}
+                          <div className="mt-4">
+                            <div className="flex flex-wrap items-center gap-4">
+                              {flow.statusFlow.map((statusItem: any, index: number) => (
+                                <div key={index} className="flex items-center gap-4">
+                                  {/* Status Badge */}
+                                  <div className="relative group">
+                                    <div className="flex flex-col items-center">
+                                      <div
+                                        className={`px-4 py-2 rounded-lg font-semibold text-sm whitespace-nowrap cursor-help transition-all ${
+                                          statusItem.status === "open"
+                                            ? "bg-blue-100 text-blue-700 border-2 border-blue-300 hover:bg-blue-200"
+                                            : statusItem.status === "needs_human_assistance"
+                                            ? "bg-amber-100 text-amber-700 border-2 border-amber-300 hover:bg-amber-200"
+                                            : statusItem.status === "closed"
+                                            ? "bg-emerald-100 text-emerald-700 border-2 border-emerald-300 hover:bg-emerald-200"
+                                            : "bg-slate-100 text-slate-700 border-2 border-slate-300 hover:bg-slate-200"
+                                        }`}
+                                      >
+                                        {statusItem.status.replace(/_/g, " ").toUpperCase()}
+                                      </div>
+                                      <div className="text-xs text-slate-500 mt-1">
+                                        {new Date(statusItem.timestamp).toLocaleTimeString()}
+                                      </div>
+                                    </div>
+
+                                    {/* Trigger Info Tooltip - Show on hover from right */}
+                                    {statusItem.trigger && (
+                                      <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 w-72 z-[9999] opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                        <div className="bg-slate-900 text-white rounded-lg p-3 shadow-xl text-xs border border-slate-700">
+                                          <div className="font-semibold text-white mb-2 flex items-center gap-2">
+                                            <span className="w-2 h-2 rounded-full bg-blue-400"></span>
+                                            {statusItem.trigger.description}
+                                          </div>
+                                          {statusItem.trigger.message && (
+                                            <div className="text-slate-200 italic mt-2 mb-2 line-clamp-3 border-l-2 border-slate-600 pl-2">
+                                              "{statusItem.trigger.message}"
+                                            </div>
+                                          )}
+                                          <div className="mt-2 pt-2 border-t border-slate-700 flex items-center justify-between">
+                                            <span className="text-slate-400">
+                                              Triggered by: <span className="text-white font-medium">{statusItem.trigger.type}</span>
+                                            </span>
+                                          </div>
+                                        </div>
+                                        {/* Arrow pointing left - centered */}
+                                        <div className="absolute -left-1 top-1/2 -translate-y-1/2">
+                                          <div className="w-2 h-2 bg-slate-900 rotate-45 border-l border-b border-slate-700"></div>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Arrow */}
+                                  {index < flow.statusFlow.length - 1 && (
+                                    <div className="flex items-center">
+                                      <svg
+                                        className="w-8 h-8 text-slate-400"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        viewBox="0 0 24 24"
+                                      >
+                                        <path
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          strokeWidth={2}
+                                          d="M13 7l5 5m0 0l-5 5m5-5H6"
+                                        />
+                                      </svg>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       ))

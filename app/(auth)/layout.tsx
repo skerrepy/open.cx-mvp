@@ -24,6 +24,10 @@ export default function AuthLayout({
       title: "Admin & Analytics Dashboard",
       description: "Comprehensive insights and ticket management",
     },
+    "/insights": {
+      title: "Product Insights",
+      description: "AI-generated insights from resolved tickets",
+    },
   };
 
   const currentHeader = pageHeaders[pathname] || { title: "", description: "" };

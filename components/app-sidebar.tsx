@@ -7,6 +7,7 @@ import {
   BarChart3,
   Ticket,
   LogOut,
+  Lightbulb,
 } from "lucide-react";
 import {
   Sidebar,
@@ -46,7 +47,17 @@ export function AppSidebar() {
       url: "/admin",
       icon: BarChart3,
     },
+    {
+      title: "Insights",
+      url: "/insights",
+      icon: Lightbulb,
+    },
   ];
+
+  // Check if a menu item is active
+  const isActive = (item: typeof menuItems[0]) => {
+    return pathname === item.url;
+  };
 
   return (
     <Sidebar collapsible="icon">
@@ -76,7 +87,7 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
-                    isActive={pathname === item.url}
+                    isActive={isActive(item)}
                     tooltip={item.title}
                   >
                     <Link href={item.url}>
