@@ -13,12 +13,13 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const period = searchParams.get("period") || "30"; // days
-    const customDate = searchParams.get("date");
+    const customFrom = searchParams.get("from");
+    const customTo = searchParams.get("to");
 
     // Validate custom date period
-    if (period === "custom" && !customDate) {
+    if (period === "custom" && !customFrom) {
       return NextResponse.json(
-        { error: "Date parameter is required for custom period" },
+        { error: "from parameter is required for custom period" },
         { status: 400 }
       );
     }
@@ -29,22 +30,29 @@ export async function GET(req: Request) {
       .from("tickets")
       .select("id, ai_token_usage, created_at");
 
-    if (period === "custom" && customDate) {
-      // For custom date, filter for that specific day
-      const startOfDay = new Date(customDate);
-      if (isNaN(startOfDay.getTime())) {
+    if (period === "custom" && customFrom) {
+      // For custom date range, filter for the specified range
+      const startDate = new Date(customFrom);
+      if (isNaN(startDate.getTime())) {
         return NextResponse.json(
-          { error: "Invalid date format" },
+          { error: "Invalid from date format" },
           { status: 400 }
         );
       }
-      startOfDay.setHours(0, 0, 0, 0);
-      const endOfDay = new Date(customDate);
-      endOfDay.setHours(23, 59, 59, 999);
+      startDate.setHours(0, 0, 0, 0);
+      
+      const endDate = customTo ? new Date(customTo) : new Date(customFrom);
+      if (isNaN(endDate.getTime())) {
+        return NextResponse.json(
+          { error: "Invalid to date format" },
+          { status: 400 }
+        );
+      }
+      endDate.setHours(23, 59, 59, 999);
       
       ticketsQuery = ticketsQuery
-        .gte("created_at", startOfDay.toISOString())
-        .lte("created_at", endOfDay.toISOString());
+        .gte("created_at", startDate.toISOString())
+        .lte("created_at", endDate.toISOString());
     } else {
       // For regular periods, use days ago
       const daysAgo = new Date();
@@ -89,9 +97,9 @@ export async function GET(req: Request) {
     if (ticketIds.length > 0) {
       // Calculate the start date for audit logs based on period
       let auditLogsStartDate: Date;
-      if (period === "custom" && customDate) {
-        // For custom date, use the start of that day
-        auditLogsStartDate = new Date(customDate);
+      if (period === "custom" && customFrom) {
+        // For custom date range, use the start of the range
+        auditLogsStartDate = new Date(customFrom);
         auditLogsStartDate.setHours(0, 0, 0, 0);
       } else {
         // For regular periods, use days ago
@@ -99,12 +107,24 @@ export async function GET(req: Request) {
         auditLogsStartDate.setDate(auditLogsStartDate.getDate() - parseInt(period));
       }
 
-      const { data: logs, error: logsError } = await supabase
+      let auditLogsEndDate: Date | undefined;
+      if (period === "custom" && customTo) {
+        auditLogsEndDate = new Date(customTo);
+        auditLogsEndDate.setHours(23, 59, 59, 999);
+      }
+
+      let auditLogsQuery = supabase
         .from("audit_logs")
         .select("ticket_id, details, action_type, created_at")
         .in("ticket_id", ticketIds)
         .in("action_type", ["ai_response", "ticket_summarized"])
         .gte("created_at", auditLogsStartDate.toISOString());
+      
+      if (auditLogsEndDate) {
+        auditLogsQuery = auditLogsQuery.lte("created_at", auditLogsEndDate.toISOString());
+      }
+
+      const { data: logs, error: logsError } = await auditLogsQuery;
 
       if (!logsError) {
         auditLogs = logs || [];
@@ -204,10 +224,12 @@ export async function GET(req: Request) {
     let periodDays: number;
     let startDate: Date;
     
-    if (period === "custom" && customDate) {
-      // For custom date, show only that single day
-      periodDays = 1;
-      startDate = new Date(customDate);
+    if (period === "custom" && customFrom) {
+      // For custom date range, calculate the number of days
+      const start = new Date(customFrom);
+      const end = customTo ? new Date(customTo) : new Date(customFrom);
+      periodDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+      startDate = new Date(customFrom);
     } else {
       periodDays = parseInt(period);
       startDate = new Date();

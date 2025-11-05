@@ -6,7 +6,8 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const ticketId = searchParams.get("ticketId");
     const period = searchParams.get("period") || "30"; // days
-    const customDate = searchParams.get("date");
+    const customFrom = searchParams.get("from");
+    const customTo = searchParams.get("to");
     const flowView = searchParams.get("flow") === "true"; // New parameter for flow view
 
     const supabase = await createServerClient();
@@ -17,15 +18,15 @@ export async function GET(req: Request) {
         .from("tickets")
         .select("id, subject, created_at");
 
-      if (period === "custom" && customDate) {
-        const startOfDay = new Date(customDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(customDate);
-        endOfDay.setHours(23, 59, 59, 999);
+      if (period === "custom" && customFrom) {
+        const startDate = new Date(customFrom);
+        startDate.setHours(0, 0, 0, 0);
+        const endDate = customTo ? new Date(customTo) : new Date(customFrom);
+        endDate.setHours(23, 59, 59, 999);
         
         ticketQuery = ticketQuery
-          .gte("created_at", startOfDay.toISOString())
-          .lte("created_at", endOfDay.toISOString());
+          .gte("created_at", startDate.toISOString())
+          .lte("created_at", endDate.toISOString());
       } else {
         const daysAgo = new Date();
         daysAgo.setDate(daysAgo.getDate() - parseInt(period));
@@ -281,16 +282,16 @@ export async function GET(req: Request) {
         .from("audit_logs")
         .select("*");
 
-      if (period === "custom" && customDate) {
-        // For custom date, filter for that specific day
-        const startOfDay = new Date(customDate);
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(customDate);
-        endOfDay.setHours(23, 59, 59, 999);
+      if (period === "custom" && customFrom) {
+        // For custom date range, filter for the specified range
+        const startDate = new Date(customFrom);
+        startDate.setHours(0, 0, 0, 0);
+        const endDate = customTo ? new Date(customTo) : new Date(customFrom);
+        endDate.setHours(23, 59, 59, 999);
         
         query = query
-          .gte("created_at", startOfDay.toISOString())
-          .lte("created_at", endOfDay.toISOString());
+          .gte("created_at", startDate.toISOString())
+          .lte("created_at", endDate.toISOString());
       } else {
         // For regular periods, use days ago
         const daysAgo = new Date();

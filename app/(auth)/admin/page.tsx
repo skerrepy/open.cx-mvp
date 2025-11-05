@@ -32,12 +32,10 @@ import {
   Star,
   Zap,
   Users,
-  MessageSquare,
-  Calendar as CalendarIcon
+  MessageSquare
 } from "lucide-react";
 import { format } from "date-fns";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Button } from "@/components/ui/button";
 
 interface AnalyticsData {
@@ -94,7 +92,7 @@ export default function AdminDashboard() {
   const [logsLoading, setLogsLoading] = useState(true);
   const [ticketFlows, setTicketFlows] = useState<any[]>([]);
   const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [customDate, setCustomDate] = useState<Date | undefined>(undefined);
+  const [customDateRange, setCustomDateRange] = useState<{ from: Date; to?: Date } | undefined>(undefined);
   const [firstTicketDate, setFirstTicketDate] = useState<Date | null>(null);
   const [activeTab, setActiveTab] = useState("analytics");
   const [agentsPerformance, setAgentsPerformance] = useState<any[]>([]);
@@ -206,9 +204,9 @@ export default function AdminDashboard() {
   }, [activeTab]);
 
   const fetchAnalytics = async () => {
-    // Don't fetch if period is custom but no date is selected
+    // Don't fetch if period is custom but no date range is selected
     // Keep previous analytics data visible
-    if (period === "custom" && !customDate) {
+    if (period === "custom" && (!customDateRange || !customDateRange.from)) {
       setAnalyticsLoading(false);
       // Don't clear analytics, keep previous data visible
       return;
@@ -217,9 +215,10 @@ export default function AdminDashboard() {
     setAnalyticsLoading(true);
     try {
       let url = `/api/analytics/tickets?period=${period}`;
-      if (period === "custom" && customDate) {
-        const dateStr = format(customDate, "yyyy-MM-dd");
-        url = `/api/analytics/tickets?period=custom&date=${dateStr}`;
+      if (period === "custom" && customDateRange?.from) {
+        const fromStr = format(customDateRange.from, "yyyy-MM-dd");
+        const toStr = customDateRange.to ? format(customDateRange.to, "yyyy-MM-dd") : fromStr;
+        url = `/api/analytics/tickets?period=custom&from=${fromStr}&to=${toStr}`;
       }
       const response = await fetch(url);
       const data = await response.json();
@@ -242,8 +241,8 @@ export default function AdminDashboard() {
   };
 
   const fetchAuditLogs = async () => {
-    // Don't fetch if period is custom but no date is selected
-    if (period === "custom" && !customDate) {
+    // Don't fetch if period is custom but no date range is selected
+    if (period === "custom" && (!customDateRange || !customDateRange.from)) {
       setLogsLoading(false);
       return;
     }
@@ -252,9 +251,10 @@ export default function AdminDashboard() {
     try {
       // Fetch flow view for ticket status changes
       let flowUrl = `/api/analytics/audit-logs?period=${period}&flow=true`;
-      if (period === "custom" && customDate) {
-        const dateStr = format(customDate, "yyyy-MM-dd");
-        flowUrl = `/api/analytics/audit-logs?period=custom&date=${dateStr}&flow=true`;
+      if (period === "custom" && customDateRange?.from) {
+        const fromStr = format(customDateRange.from, "yyyy-MM-dd");
+        const toStr = customDateRange.to ? format(customDateRange.to, "yyyy-MM-dd") : fromStr;
+        flowUrl = `/api/analytics/audit-logs?period=custom&from=${fromStr}&to=${toStr}&flow=true`;
       }
       const flowResponse = await fetch(flowUrl);
       const flowData = await flowResponse.json();
@@ -267,9 +267,10 @@ export default function AdminDashboard() {
 
       // Also fetch regular audit logs for backward compatibility
       let url = `/api/analytics/audit-logs?period=${period}`;
-      if (period === "custom" && customDate) {
-        const dateStr = format(customDate, "yyyy-MM-dd");
-        url = `/api/analytics/audit-logs?period=custom&date=${dateStr}`;
+      if (period === "custom" && customDateRange?.from) {
+        const fromStr = format(customDateRange.from, "yyyy-MM-dd");
+        const toStr = customDateRange.to ? format(customDateRange.to, "yyyy-MM-dd") : fromStr;
+        url = `/api/analytics/audit-logs?period=custom&from=${fromStr}&to=${toStr}`;
       }
       const response = await fetch(url);
       const data = await response.json();
@@ -289,12 +290,12 @@ export default function AdminDashboard() {
 
   // Initial fetch and fetch on period change
   useEffect(() => {
-    // Only fetch if period is not custom, or if custom and date is selected
-    if (period !== "custom" || customDate) {
+    // Only fetch if period is not custom, or if custom and date range is selected
+    if (period !== "custom" || (customDateRange && customDateRange.from)) {
       fetchAnalytics();
       fetchAuditLogs();
     }
-  }, [period, customDate]);
+  }, [period, customDateRange]);
 
   // Listen for ticket status changes and refresh analytics
   useEffect(() => {
@@ -388,7 +389,7 @@ export default function AdminDashboard() {
                   key={p.value}
                   onClick={() => {
                     setPeriod(p.value);
-                    setCustomDate(undefined);
+                    setCustomDateRange(undefined);
                   }}
                   className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
                     period === p.value
@@ -399,42 +400,27 @@ export default function AdminDashboard() {
                   {p.label}
                 </button>
               ))}
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
-                      period === "custom" && customDate
-                        ? "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/30 border-transparent"
-                        : "text-slate-600 hover:bg-slate-100 border-slate-200"
-                    }`}
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4" />
-                    {customDate ? format(customDate, "MMM dd, yyyy") : "Custom"}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="end">
-                  <Calendar
-                    mode="single"
-                    selected={customDate}
-                    onSelect={(date) => {
-                      if (date) {
-                        setCustomDate(date);
-                        setPeriod("custom");
-                      }
-                    }}
-                    disabled={(date) => {
-                      if (!firstTicketDate) return true;
-                      const firstDate = new Date(firstTicketDate);
-                      firstDate.setHours(0, 0, 0, 0);
-                      const today = new Date();
-                      today.setHours(23, 59, 59, 999);
-                      return date < firstDate || date > today;
-                    }}
-                    initialFocus
-                  />
-                </PopoverContent>
-              </Popover>
+              <DateRangePicker
+                onUpdate={(values) => {
+                  if (values.range.from && values.range.to) {
+                    setCustomDateRange(values.range);
+                    setPeriod("custom");
+                  }
+                }}
+                initialDateFrom={customDateRange?.from}
+                initialDateTo={customDateRange?.to}
+                align="end"
+                showCompare={false}
+                disabled={(date) => {
+                  // Don't disable all dates if firstTicketDate is not loaded yet
+                  if (!firstTicketDate) return false;
+                  const firstDate = new Date(firstTicketDate);
+                  firstDate.setHours(0, 0, 0, 0);
+                  const today = new Date();
+                  today.setHours(23, 59, 59, 999);
+                  return date < firstDate || date > today;
+                }}
+              />
             </div>
           </div>
 
@@ -445,12 +431,12 @@ export default function AdminDashboard() {
                   <Skeleton key={i} className="h-40 rounded-2xl" />
                 ))}
               </div>
-            ) : period === "custom" && !customDate ? (
+            ) : period === "custom" && (!customDateRange || !customDateRange.from) ? (
               <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">
                 <CardContent className="flex flex-col items-center justify-center py-12">
                   <CalendarIcon className="w-12 h-12 text-slate-400 mb-4" />
-                  <h3 className="text-lg font-semibold text-slate-900 mb-2">Select a Date</h3>
-                  <p className="text-slate-600 text-center">Please select a date from the calendar to view analytics for that day.</p>
+                  <h3 className="text-lg font-semibold text-slate-900 mb-2">Select a Date Range</h3>
+                  <p className="text-slate-600 text-center">Please select a date range from the calendar to view analytics for that period.</p>
                 </CardContent>
               </Card>
             ) : analytics ? (
