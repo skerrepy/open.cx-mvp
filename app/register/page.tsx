@@ -21,6 +21,7 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   // Don't check auth here - let middleware handle it
   // This prevents redirect loops
@@ -28,6 +29,7 @@ export default function RegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccess(null);
 
     if (password !== confirmPassword) {
       setError("Passwords do not match");
@@ -66,7 +68,7 @@ export default function RegisterPage() {
         window.location.href = "/dashboard";
       } else {
         // Email confirmation required
-        setError(
+        setSuccess(
           "Account created! Please check your email to confirm your account before signing in."
         );
         setLoading(false);
@@ -100,13 +102,24 @@ export default function RegisterPage() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
+              {success && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                >
+                  <Alert variant="success">
+                    <AlertDescription>{success}</AlertDescription>
+                  </Alert>
+                </motion.div>
+              )}
               {error && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
                 >
-                  <Alert variant={error.includes("check your email") ? "default" : "destructive"}>
+                  <Alert variant="destructive">
                     <AlertDescription>{error}</AlertDescription>
                   </Alert>
                 </motion.div>

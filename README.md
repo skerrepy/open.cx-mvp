@@ -1,7 +1,3 @@
-That's an excellent, well-structured project overview\! Here is the information presented in a clean, comprehensive Markdown format.
-
------
-
 # SupportAI – AI-Powered Customer Support Platform
 
 SupportAI is an **AI-driven customer support platform** built for SaaS companies, designed to enhance efficiency and customer experience.
