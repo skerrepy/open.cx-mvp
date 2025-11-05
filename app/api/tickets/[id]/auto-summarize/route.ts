@@ -62,6 +62,15 @@ export async function POST(
       );
     }
 
+    // Only summarize if there are at least 3 customer messages (optimize resources)
+    if (customerMessages.length < 3) {
+      return NextResponse.json({ 
+        message: "Not enough customer messages to summarize (minimum 3 required)",
+        skipped: true,
+        customerMessageCount: customerMessages.length
+      });
+    }
+
     // Build conversation context
     const conversationText = customerMessages
       .map((msg: any) => `Customer: ${msg.text}`)

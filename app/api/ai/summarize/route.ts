@@ -23,6 +23,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No customer messages to summarize" }, { status: 400 });
     }
 
+    // Only summarize if there are at least 3 customer messages (optimize resources)
+    if (customerMessages.length < 3) {
+      return NextResponse.json({ 
+        error: "Not enough customer messages to summarize (minimum 3 required)",
+        customerMessageCount: customerMessages.length
+      }, { status: 400 });
+    }
+
     // Build conversation context for OpenAI
     const conversationText = customerMessages
       .map((msg: any) => `Customer: ${msg.text}`)

@@ -84,7 +84,7 @@ export async function GET(req: Request) {
     if (ticketIds.length > 0) {
       const { data: messages, error: messagesError } = await supabase
         .from("messages")
-        .select("ticket_id, sender")
+        .select("ticket_id, sender, created_at")
         .in("ticket_id", ticketIds);
 
       if (!messagesError) {
@@ -150,36 +150,47 @@ export async function GET(req: Request) {
       if (currentStatus === "closed") {
         totalClosed++;
         
-        // Get all statuses for this ticket
+        // Get all statuses for this ticket (ordered by time)
         const ticketStatuses = statusData.filter((s) => s.ticket_id === ticketId);
         
-        // Check if ticket had "needs_human_assistance" status at any point
-        const hadHumanAssistance = ticketStatuses.some(
-          (s) => s.status === "needs_human_assistance"
-        );
+        // Find when "needs_human_assistance" status was first set
+        const humanAssistanceStatus = ticketStatuses
+          .filter((s) => s.status === "needs_human_assistance")
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
+        
+        const hadHumanAssistance = !!humanAssistanceStatus;
         
         // Get all messages for this ticket
         const ticketMessages = messagesData.filter((m) => m.ticket_id === ticketId);
-        const totalMessages = ticketMessages.length;
-        const aiMessages = ticketMessages.filter((m) => m.sender === "ai").length;
         
-        // Calculate AI message percentage
-        const aiMessagePercentage = totalMessages > 0 ? (aiMessages / totalMessages) * 100 : 0;
+        // Count AI messages that occurred BEFORE human handover
+        let aiMessagesBeforeHandover = 0;
+        if (hadHumanAssistance && humanAssistanceStatus) {
+          const handoverTime = new Date(humanAssistanceStatus.created_at).getTime();
+          aiMessagesBeforeHandover = ticketMessages.filter((m) => {
+            if (m.sender !== "ai") return false;
+            const messageTime = new Date(m.created_at).getTime();
+            return messageTime < handoverTime;
+          }).length;
+        } else {
+          // No handover, count all AI messages
+          aiMessagesBeforeHandover = ticketMessages.filter((m) => m.sender === "ai").length;
+        }
         
         // Determine resolution type based on new logic:
         // 1. If NO "needs_human_assistance" → AI fully resolved
-        // 2. If YES "needs_human_assistance" AND AI >= 40% messages → Mixed/Hybrid
-        // 3. If YES "needs_human_assistance" AND AI < 40% messages → Human resolved
+        // 2. If YES "needs_human_assistance" AND AI messages >= 5 before handover → Mixed/Hybrid
+        // 3. If YES "needs_human_assistance" AND AI messages < 5 before handover → Human resolved
         if (!hadHumanAssistance) {
           // No human assistance requested → AI fully resolved
           aiResolvedCount++;
         } else {
           // Human assistance was requested
-          if (aiMessagePercentage >= 40) {
-            // AI sent 40% or more messages → Mixed/Hybrid
+          if (aiMessagesBeforeHandover >= 5) {
+            // AI sent at least 5 messages before handover → Mixed/Hybrid
             mixedCount++;
           } else {
-            // AI sent less than 40% messages → Human resolved
+            // AI sent less than 5 messages before handover → Human resolved
             humanResolvedCount++;
           }
         }
@@ -259,17 +270,34 @@ export async function GET(req: Request) {
 
       closedTicketsForDay.forEach((ticketId) => {
         const ticketStatuses = statusData.filter((s) => s.ticket_id === ticketId);
-        const hadHumanAssistance = ticketStatuses.some(
-          (s) => s.status === "needs_human_assistance"
-        );
+        
+        // Find when "needs_human_assistance" status was first set
+        const humanAssistanceStatus = ticketStatuses
+          .filter((s) => s.status === "needs_human_assistance")
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())[0];
+        
+        const hadHumanAssistance = !!humanAssistanceStatus;
+        
+        // Get all messages for this ticket
         const ticketMessages = messagesData.filter((m) => m.ticket_id === ticketId);
-        const totalMessages = ticketMessages.length;
-        const aiMessages = ticketMessages.filter((m) => m.sender === "ai").length;
-        const aiMessagePercentage = totalMessages > 0 ? (aiMessages / totalMessages) * 100 : 0;
+        
+        // Count AI messages that occurred BEFORE human handover
+        let aiMessagesBeforeHandover = 0;
+        if (hadHumanAssistance && humanAssistanceStatus) {
+          const handoverTime = new Date(humanAssistanceStatus.created_at).getTime();
+          aiMessagesBeforeHandover = ticketMessages.filter((m) => {
+            if (m.sender !== "ai") return false;
+            const messageTime = new Date(m.created_at).getTime();
+            return messageTime < handoverTime;
+          }).length;
+        } else {
+          // No handover, count all AI messages
+          aiMessagesBeforeHandover = ticketMessages.filter((m) => m.sender === "ai").length;
+        }
 
         if (!hadHumanAssistance) {
           dayAiResolved++;
-        } else if (aiMessagePercentage >= 40) {
+        } else if (aiMessagesBeforeHandover >= 5) {
           dayMixed++;
         } else {
           dayHumanResolved++;
@@ -313,7 +341,7 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json({
-      period: period === "custom" ? (customDate ? 1 : 0) : parseInt(period),
+      period: period === "custom" ? (customFrom ? (customTo ? Math.ceil((new Date(customTo).getTime() - new Date(customFrom).getTime()) / (1000 * 60 * 60 * 24)) + 1 : 1) : 0) : parseInt(period),
       totals: {
         tickets: totalTickets,
         closed: totalClosed,

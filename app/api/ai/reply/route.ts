@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
+import { createAdminClient } from "@/lib/supabaseAdmin";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
@@ -14,23 +15,35 @@ export async function POST(req: Request) {
 
     const supabase = await createServerClient();
     
-    // Fetch business settings for the ticket owner
+    // Fetch business settings - prioritize business settings over generic defaults
+    // Use admin client to bypass RLS since this endpoint can be called from public widget
+    // In a single-tenant system, there should be one business_settings entry
     let businessSettings = null;
-    if (ticketId) {
-      // Get the ticket to find the owner (assuming tickets have a created_by or similar field)
-      // For now, we'll get the first business_settings entry (assuming single tenant)
-      // In a multi-tenant system, you'd need to link tickets to users/businesses
-      const { data: settings } = await supabase
+    const adminClient = createAdminClient();
+    
+    if (adminClient) {
+      const { data: settings, error: settingsError } = await adminClient
         .from("business_settings")
         .select("*")
         .limit(1)
         .maybeSingle();
       
-      if (settings) {
+      if (settingsError) {
+        console.error("Error fetching business settings:", settingsError);
+      } else if (settings) {
         businessSettings = settings;
+        console.log("Business settings loaded successfully:", {
+          business_name: settings.business_name,
+          primary_language: settings.primary_language,
+          ai_tone: settings.ai_tone,
+          has_context: !!settings.business_context,
+        });
+      } else {
+        console.warn("No business settings found in database");
       }
+    } else {
+      console.warn("Admin client not available, cannot fetch business settings. Check SUPABASE_SERVICE_ROLE_KEY environment variable.");
     }
-    
     // Check if ticket status is already needs_human_assistance or closed
     let ticketStatus = "open";
     let customerInfoExtracted = false;
@@ -143,15 +156,31 @@ If any field is not found, set it to null. Only extract if you're confident abou
       }
     }
 
-    // Build business context string for the prompt
+    // Build business context string for the prompt - prioritize business settings
+    // Only use generic defaults if business settings truly don't exist
     let businessContextString = "";
     if (businessSettings) {
-      businessContextString = `Business Name: ${businessSettings.business_name || "Our Company"}
+      // Use business settings values - they should always be set if business_settings exists
+      businessContextString = `BUSINESS CONTEXT (PRIORITIZE THIS INFORMATION):
+Business Name: ${businessSettings.business_name || "Our Company"}
 Primary Language: ${businessSettings.primary_language || "English"}
-Tone: ${businessSettings.ai_tone || "friendly"}
+AI Tone: ${businessSettings.ai_tone || "friendly"}
 
-Background Information:
-${businessSettings.business_context || "No additional context provided."}
+Business Background & Context:
+${businessSettings.business_context ? businessSettings.business_context : "No additional business context provided."}
+
+IMPORTANT: Use the business name, tone, language, and context provided above. This information takes priority over any generic responses.
+
+`;
+    } else {
+      // Only use generic defaults if no business settings exist
+      businessContextString = `BUSINESS CONTEXT:
+Business Name: Our Company
+Primary Language: English
+AI Tone: friendly
+
+Business Background & Context:
+No specific business context provided. Use general helpful responses.
 
 `;
     }
@@ -161,18 +190,24 @@ ${businessSettings.business_context || "No additional context provided."}
       .filter((m: any) => m.role === "user")
       .slice(-1)[0]?.content || "";
 
-    // Enhanced system prompt - AI decides when to transfer based on context
+    // Enhanced system prompt - prioritize business settings over generic defaults
+    const businessName = businessSettings?.business_name || "Our Company";
+    const primaryLanguage = businessSettings?.primary_language || "English";
+    const aiTone = businessSettings?.ai_tone || "friendly";
+    const businessContext = businessSettings?.business_context || null;
+
     const enhancedMessages = [
       {
         role: "system",
-        content: `You are a helpful AI support assistant. Your primary role is to answer customer questions confidently and provide helpful information.
+        content: `You are a helpful AI support assistant for ${businessName}. Your primary role is to answer customer questions confidently and provide helpful information.
 
-${businessContextString ? `${businessContextString}Customer Message:\n${latestCustomerMessage}\n\n` : ""}IMPORTANT GUIDELINES:
-1. ALWAYS provide helpful, detailed answers to customer questions first
-2. When asked about policies (refunds, returns, shipping, etc.), provide the actual policy information clearly based on the Background Information provided above
-3. Match the tone specified above (${businessSettings?.ai_tone || "friendly"}) in all your responses
-4. Respond in ${businessSettings?.primary_language || "English"} language
-5. Use the business name "${businessSettings?.business_name || "Our Company"}" when referring to the company
+${businessContextString}
+IMPORTANT GUIDELINES (PRIORITIZE BUSINESS SETTINGS):
+1. ALWAYS use the Business Name "${businessName}" when referring to the company
+2. ALWAYS respond in ${primaryLanguage} language
+3. ALWAYS match the ${aiTone} tone specified in the business settings
+4. ${businessContext ? `ALWAYS prioritize the Business Background & Context provided above when answering questions. Use this information to provide accurate, specific answers about policies, products, and services.` : "Use general helpful responses when business context is not available."}
+5. When asked about policies (refunds, returns, shipping, etc.), ${businessContext ? "provide the actual policy information from the Business Background & Context above" : "provide general helpful guidance"}
 6. Be confident in your answers - you should handle most common questions
 7. ONLY indicate transfer to human agent in these specific cases:
    - Customer EXPLICITLY requests to speak with a human agent
@@ -186,15 +221,17 @@ DO NOT transfer to human agent when:
 
 RESPONSE FORMAT:
 - Provide your normal helpful response to the customer
-- Match the specified tone (${businessSettings?.ai_tone || "friendly"})
-- Respond in ${businessSettings?.primary_language || "English"}
+- Match the ${aiTone} tone exactly
+- Respond in ${primaryLanguage} language
+- Use "${businessName}" when referring to the company
+- ${businessContext ? "Use the Business Background & Context to provide specific, accurate information" : ""}
 - At the END of your response, if you determine the customer needs human assistance, add exactly this marker on a new line: "[[TRANSFER_TO_AGENT]]"
 - If no transfer is needed, do NOT include this marker
 
 Example responses:
 
 Customer: "How do I return a product?"
-Your response: "Our return policy allows returns within 30 days of purchase. Items must be unused and in original packaging. To initiate a return, please visit your account orders page and click 'Request Return' on the item. You'll receive a prepaid shipping label. Is there anything specific about the return process you'd like to know?"
+Your response: ${businessContext ? `Use the Business Background & Context to provide specific return policy information.` : `"Our return policy allows returns within 30 days of purchase. Items must be unused and in original packaging. To initiate a return, please visit your account orders page and click 'Request Return' on the item. You'll receive a prepaid shipping label. Is there anything specific about the return process you'd like to know?"`}
 
 Customer: "I want to speak to a human agent"
 Your response: "I understand you'd like to speak with a human agent. Let me connect you with one right away.
@@ -204,7 +241,7 @@ Customer: "That answer doesn't help me at all"
 Your response: "I apologize that my previous response wasn't helpful. Let me connect you with a human agent who can better assist you.
 [[TRANSFER_TO_AGENT]]"
 
-Be helpful, confident, and informative. Only add the transfer marker when truly necessary.`,
+Remember: ${businessContext ? "PRIORITIZE the Business Background & Context provided above. Use it to give accurate, specific answers." : "Provide helpful, general responses."} Be confident, match the ${aiTone} tone, and respond in ${primaryLanguage}. Only add the transfer marker when truly necessary.`,
       },
       ...messages.filter((m: any) => m.role !== "system"),
     ];
