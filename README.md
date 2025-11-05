@@ -29,9 +29,8 @@ This project fulfills the assignment requirements of OpenCX, with a focus on:
 | Item | Link |
 | :--- | :--- |
 | **Live App** | [https://supportai.vercel.app](https://supportai.vercel.app) |
-| **GitHub Repo** | [https://github.com/omarhanafi/supportai](https://github.com/omarhanafi/supportai) |
+| **GitHub Repo** | [https://github.com/skerrepy/open.cx-mvp](https://github.com/skerrepy/open.cx-mvp) |
 | **Widget Preview** | [https://supportai.vercel.app/widget](https://supportai.vercel.app/widget) |
-| **Access** | `tabaza@open.cx` & `mo@open.cx` invited to repo |
 
 -----
 
