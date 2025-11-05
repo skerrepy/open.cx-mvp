@@ -35,7 +35,6 @@ export default function Dashboard() {
       const { data, error } = await supabase
         .from("business_settings")
         .select("id")
-        .eq("owner_user_id", userId)
         .maybeSingle();
       
       if (error && error.code !== "PGRST116") {
