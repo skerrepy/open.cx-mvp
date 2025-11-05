@@ -1,4 +1,4 @@
-import { createServerClient } from "@/lib/supabaseServer";
+import { createAdminClient } from "@/lib/supabaseAdmin";
 import { NextResponse } from "next/server";
 
 export async function GET(req: Request) {
@@ -10,7 +10,37 @@ export async function GET(req: Request) {
     const customTo = searchParams.get("to");
     const flowView = searchParams.get("flow") === "true"; // New parameter for flow view
 
-    const supabase = await createServerClient();
+    // Use admin client to bypass RLS for analytics (server-side only)
+    const supabase = createAdminClient();
+    if (!supabase) {
+      console.error("[AUDIT LOGS] Admin client not available");
+      return NextResponse.json(
+        { error: "Server configuration error: Admin client unavailable" },
+        { status: 500 }
+      );
+    }
+
+    // Test query to verify RLS bypass
+    console.log("[AUDIT LOGS] Testing admin client access...");
+    const { data: testData, error: testError } = await supabase
+      .from("tickets")
+      .select("id")
+      .limit(1);
+    
+    if (testError) {
+      console.error("[AUDIT LOGS] Admin client test failed:", {
+        code: testError.code,
+        message: testError.message,
+        details: testError.details,
+        hint: testError.hint,
+      });
+      return NextResponse.json(
+        { error: "Database access error", details: testError.message, code: testError.code },
+        { status: 500 }
+      );
+    }
+    
+    console.log("[AUDIT LOGS] Admin client test passed, proceeding with query");
     
     if (flowView) {
       // Flow view: Get ticket status history grouped by ticket

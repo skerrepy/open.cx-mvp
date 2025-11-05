@@ -1,10 +1,16 @@
-import { createServerClient } from "@/lib/supabaseServer";
 import { createAdminClient } from "@/lib/supabaseAdmin";
 import { NextResponse } from "next/server";
 
 export async function GET(req: Request) {
   try {
-    const supabase = await createServerClient();
+    // Use admin client to bypass RLS for analytics (server-side only)
+    const supabase = createAdminClient();
+    if (!supabase) {
+      return NextResponse.json(
+        { error: "Server configuration error: Admin client unavailable" },
+        { status: 500 }
+      );
+    }
 
     // Get all unique assignees from tickets (including closed ones)
     // We need to check ticket statuses to find closed tickets

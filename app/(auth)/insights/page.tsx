@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +21,7 @@ import { format } from "date-fns";
 
 export default function InsightsPage() {
   const [isGenerating, setIsGenerating] = useState(false);
+  const hasAttemptedGenerationRef = useRef(false);
 
   // Fetch latest insights
   const { data: insightsResponse, isLoading: insightsLoading, refetch } = useQuery({
@@ -36,20 +37,23 @@ export default function InsightsPage() {
   const isToday = insightsResponse?.isToday;
   const needsGeneration = insightsResponse?.needsGeneration;
 
-  // Auto-generate insights on page load if not generated today
+  // Auto-generate insights on page load if not generated today (only once)
   useEffect(() => {
     const generateIfNeeded = async () => {
       // Only generate if:
       // 1. Not currently loading
       // 2. Not currently generating
-      // 3. Response has been loaded (not undefined)
-      // 4. No insights for today (isToday is false or undefined)
+      // 3. Haven't already attempted generation (using ref to persist across renders)
+      // 4. Response has been loaded (not undefined)
+      // 5. No insights for today (isToday is false or undefined)
       if (
         !insightsLoading && 
         !isGenerating && 
+        !hasAttemptedGenerationRef.current &&
         insightsResponse !== undefined && 
         isToday === false
       ) {
+        hasAttemptedGenerationRef.current = true; // Mark as attempted to prevent retries
         setIsGenerating(true);
         try {
           const response = await fetch("/api/insights/generate", { method: "POST" });
@@ -72,7 +76,9 @@ export default function InsightsPage() {
     };
 
     generateIfNeeded();
-  }, [insightsLoading, isToday, isGenerating, insightsResponse, refetch]);
+    // Only run when these specific values change, not refetch
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [insightsLoading, isToday, isGenerating, insightsResponse]);
 
   // Fetch tickets with tags for pie chart
   const { data: ticketsWithTags, isLoading: tagsLoading } = useQuery({

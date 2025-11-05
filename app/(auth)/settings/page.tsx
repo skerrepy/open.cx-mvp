@@ -37,6 +37,7 @@ export default function BusinessSettingsPage() {
   const [businessContext, setBusinessContext] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [widgetCode, setWidgetCode] = useState('<script src="/embed.js"></script>');
 
   // Get current user
   useEffect(() => {
@@ -45,6 +46,13 @@ export default function BusinessSettingsPage() {
       setUserId(user?.id || null);
     };
     getUser();
+  }, []);
+
+  // Set widget code on client side only to avoid hydration mismatch
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setWidgetCode(`<script src="${window.location.origin}/embed.js"></script>`);
+    }
   }, []);
 
   // Fetch existing settings
@@ -127,8 +135,6 @@ export default function BusinessSettingsPage() {
       setIsSubmitting(false);
     }
   };
-
-  const widgetCode = `<script src="${typeof window !== 'undefined' ? window.location.origin : ''}/embed.js"></script>`;
 
   const copyToClipboard = async () => {
     try {

@@ -1,4 +1,4 @@
-import { createServerClient } from "@/lib/supabaseServer";
+import { createAdminClient } from "@/lib/supabaseAdmin";
 import { NextResponse } from "next/server";
 
 // GPT-4o-mini pricing (as of 2024)
@@ -24,7 +24,37 @@ export async function GET(req: Request) {
       );
     }
 
-    const supabase = await createServerClient();
+    // Use admin client to bypass RLS for analytics (server-side only)
+    const supabase = createAdminClient();
+    if (!supabase) {
+      console.error("[ANALYTICS] Admin client not available");
+      return NextResponse.json(
+        { error: "Server configuration error: Admin client unavailable" },
+        { status: 500 }
+      );
+    }
+
+    // Test query to verify RLS bypass
+    console.log("[ANALYTICS] Testing admin client access...");
+    const { data: testData, error: testError } = await supabase
+      .from("tickets")
+      .select("id")
+      .limit(1);
+    
+    if (testError) {
+      console.error("[ANALYTICS] Admin client test failed:", {
+        code: testError.code,
+        message: testError.message,
+        details: testError.details,
+        hint: testError.hint,
+      });
+      return NextResponse.json(
+        { error: "Database access error", details: testError.message, code: testError.code },
+        { status: 500 }
+      );
+    }
+    
+    console.log("[ANALYTICS] Admin client test passed, proceeding with query");
     
     let ticketsQuery = supabase
       .from("tickets")

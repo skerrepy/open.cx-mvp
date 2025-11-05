@@ -1,12 +1,19 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabaseServer";
+import { createAdminClient } from "@/lib/supabaseAdmin";
 import OpenAI from "openai";
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
 export async function POST(req: Request) {
   try {
-    const supabase = await createServerClient();
+    // Use admin client to bypass RLS for insights generation (server-side only)
+    const supabase = createAdminClient();
+    if (!supabase) {
+      return NextResponse.json(
+        { error: "Server configuration error: Admin client unavailable" },
+        { status: 500 }
+      );
+    }
 
     // Check if insights were generated today
     const today = new Date();

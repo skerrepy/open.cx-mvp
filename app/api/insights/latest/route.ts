@@ -1,9 +1,16 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@/lib/supabaseServer";
+import { createAdminClient } from "@/lib/supabaseAdmin";
 
 export async function GET() {
   try {
-    const supabase = await createServerClient();
+    // Use admin client to bypass RLS for insights (server-side only)
+    const supabase = createAdminClient();
+    if (!supabase) {
+      return NextResponse.json(
+        { error: "Server configuration error: Admin client unavailable" },
+        { status: 500 }
+      );
+    }
 
     // Check if insights were generated today first
     const today = new Date();
