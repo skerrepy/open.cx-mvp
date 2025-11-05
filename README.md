@@ -1,299 +1,225 @@
-# SupportAI
+That's an excellent, well-structured project overview\! Here is the information presented in a clean, comprehensive Markdown format.
 
-An AI-powered customer support platform with an embeddable chat widget, ticketing dashboard, and real-time messaging capabilities.
+-----
 
-## Features
+# SupportAI – AI-Powered Customer Support Platform
 
-- 🤖 **AI-Powered Chat**: GPT-4o-mini powered support assistant
-- 💬 **Embeddable Widget**: Easy-to-integrate chat widget for your website
-- 🎫 **Ticket Management**: Full-featured dashboard for support agents
-- ⚡ **Real-Time Messaging**: Supabase Realtime for live conversations
-- 🔐 **Authentication**: Supabase Auth for secure agent access
-- 📊 **PostgreSQL Database**: Supabase PostgreSQL with real-time subscriptions
-- 🚀 **React Query**: Optimistic updates and smart caching
-- 🎨 **UI Components**: shadcn/ui with Framer Motion animations
+SupportAI is an **AI-driven customer support platform** built for SaaS companies, designed to enhance efficiency and customer experience.
 
-## Tech Stack
+### Core Offerings
 
-- **Frontend**: Next.js 14+ (App Router), React, TypeScript, Tailwind CSS
-- **Backend**: Next.js API Routes
-- **Database**: Supabase PostgreSQL
-- **Real-Time**: Supabase Realtime Subscriptions
-- **Auth**: Supabase Auth
-- **State Management**: React Query (TanStack Query)
-- **AI**: OpenAI API (GPT-4o-mini)
-- **Deployment**: Vercel (Full-stack)
+  * A fully **embeddable chat widget** for customers.
+  * A **ticketing dashboard** for support agents.
+  * **AI-assisted responses** with configurable tone & business context.
+  * **Analytics & insights** for admins/products teams.
 
-## Getting Started
+### Project Focus
 
-### Prerequisites
+This project fulfills the assignment requirements of OpenCX, with a focus on:
 
-- Node.js 18+ and pnpm installed
-- Supabase account and project
-- OpenAI API key
+  * **Practical product value**
+  * **Smooth, intuitive UX**
+  * **Clear, maintainable architecture**
+  * **Sensible tradeoffs** to meet the timeline
 
-### Installation
+-----
 
-1. **Clone the repository**
-   ```bash
-   git clone <your-repo-url>
-   cd support-ai
-   ```
+##  Live Demo & Code
 
-2. **Install dependencies**
-   ```bash
-   pnpm install
-   ```
+| Item | Link |
+| :--- | :--- |
+| **Live App** | [https://supportai.vercel.app](https://supportai.vercel.app) |
+| **GitHub Repo** | [https://github.com/omarhanafi/supportai](https://github.com/omarhanafi/supportai) |
+| **Widget Preview** | [https://supportai.vercel.app/widget](https://supportai.vercel.app/widget) |
+| **Access** | `tabaza@open.cx` & `mo@open.cx` invited to repo |
 
-3. **Set up Supabase**
-   
-   Create a new Supabase project at https://supabase.com and run the following SQL in the SQL Editor:
+-----
 
-   ```sql
-   -- Create tickets table
-   CREATE TABLE tickets (
-     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-     subject TEXT,
-     status TEXT DEFAULT 'open',
-     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-     customer_id UUID,
-     assignee_id UUID
-   );
+## Product Value
 
-   -- Create messages table
-   CREATE TABLE messages (
-     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-     ticket_id UUID REFERENCES tickets(id) ON DELETE CASCADE,
-     sender TEXT NOT NULL,
-     text TEXT NOT NULL,
-     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-   );
+SupportAI helps SaaS companies **reduce support load** while **improving customer experience** across various user types:
 
-   -- Enable Row Level Security
-   ALTER TABLE tickets ENABLE ROW LEVEL SECURITY;
-   ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
+| User Type | Value Delivered |
+| :--- | :--- |
+| **Customer / End-user** | Fast answers, smooth escalation to humans when needed. |
+| **Support Agent** | Ticket organization, AI suggestions, faster resolutions. |
+| **Admin / Analyst** | Insights into performance, quality checks, audit history. |
+| **Product Manager** | Recurring issue detection & feature request insights. |
 
-   -- Create policies (adjust based on your auth requirements)
-   -- Allow anonymous reads and writes for tickets/messages
-   CREATE POLICY "Allow public read access" ON tickets FOR SELECT USING (true);
-   CREATE POLICY "Allow public insert" ON tickets FOR INSERT WITH CHECK (true);
-   CREATE POLICY "Allow public update" ON tickets FOR UPDATE USING (true);
+-----
 
-   CREATE POLICY "Allow public read access" ON messages FOR SELECT USING (true);
-   CREATE POLICY "Allow public insert" ON messages FOR INSERT WITH CHECK (true);
+## Key Features
 
-   -- Enable Realtime for messages
-   ALTER PUBLICATION supabase_realtime ADD TABLE messages;
-   ALTER PUBLICATION supabase_realtime ADD TABLE tickets;
-   ```
+### 1\. Embeddable Support Chat Widget
 
-4. **Set up environment variables**
-   ```bash
-   cp .env.example .env.local
-   ```
-   
-   Edit `.env.local` and add your:
-   - `NEXT_PUBLIC_SUPABASE_URL`: Your Supabase project URL
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Your Supabase anon/public key
-   - `OPENAI_API_KEY`: Your OpenAI API key
-   - `NEXT_PUBLIC_BASE_URL`: Your app URL (e.g., `http://localhost:3000`)
+  * **One-line `<script>`** integration.
+  * Real-time messaging.
+  * Language detection.
+  * **AI + human escalation** workflow.
+  * Customer satisfaction rating.
+  * Responsive & animated UI.
 
-5. **Start the development server**
-   ```bash
-   pnpm dev
-   ```
+### 2\. Ticketing Dashboard
 
-6. **Open your browser**
-   - Main app: http://localhost:3000
-   - Login: http://localhost:3000/login
-   - Register: http://localhost:3000/register
-   - Dashboard: http://localhost:3000/dashboard (requires auth)
-   - Widget preview: http://localhost:3000/widget
+  * Ticket list + detail views.
+  * Ticket **status lifecycle** management.
+  * Real-time message updates.
+  * AI + agent handoff workflow.
+  * Customer history & context viewing.
 
-## Authentication
+### 3\. AI Customization
 
-The dashboard is protected by Supabase Auth. To access it:
+Admins can fine-tune the AI's performance:
 
-1. Visit http://localhost:3000/register to create a new account
-2. Or visit http://localhost:3000/login to sign in with an existing account
-3. After authentication, you'll be redirected to the dashboard
+  * Choose **primary language**.
+  * Select AI **tone** (friendly, formal, concise, etc.).
+  * Provide **business context** (FAQ, policies, product info).
 
-For production, configure email templates and auth providers in your Supabase dashboard.
+### 4\. Admin Analytics Dashboard
 
-## Embedding the Widget
+  * Ticket volume & **resolution breakdown**.
+  * Agent performance metrics.
+  * Token usage tracking.
+  * Audit logs of all automated actions.
 
-### Option 1: Using the embed.js script
+### 5\. Product Insights (for PMs)
 
-Add this script tag to your HTML:
+  * **Summarized recurring issues**.
+  * Most requested features.
+  * Trend summaries.
+  * Tag distribution analysis.
 
-```html
-<script src="https://yourapp.vercel.app/embed.js"></script>
+-----
+
+## Realistic User Flows
+
+### Flow 1 — AI Handles Support
+
+1.  **Customer:** *"How can I reset my password?"*
+2.  **AI** responds with instructions using company-specific policy.
+3.  Customer confirms the issue is resolved.
+4.  Ticket is **automatically closed**.
+5.  Customer leaves satisfaction rating.
+
+### Flow 2 — AI → Human Escalation
+
+1.  **Customer:** *"I was charged twice this month."*
+2.  **AI** asks clarifying questions.
+3.  **Customer** requests a human: *"I want to speak to an agent."*
+4.  **AI** changes ticket status to $\rightarrow$ `needs_human_assistance`.
+5.  **Agent** picks up ticket, responds, and resolves case.
+
+### Flow 3 — Product Manager Insights
+
+1.  Over time, SupportAI analyzes closed tickets.
+2.  It identifies recurring phrases such as: *"Billing confusion about annual renewals"*.
+3.  **Insights page** highlights: Top recurring issues and Top requested improvements.
+4.  **PM** exports insights $\rightarrow$ shares with engineering.
+
+-----
+
+## 🛠️ Tech Stack
+
+### Frontend
+
+  * **Next.js 14** (App Router), **TypeScript**
+  * **React 18** + React Query
+  * **Tailwind CSS** + shadcn/ui + Framer Motion
+  * **Recharts** for analytics
+
+### Backend
+
+  * **Next.js API Routes** (serverless)
+  * **Supabase** PostgreSQL + Auth + Realtime
+  * **OpenAI GPT-4o-mini** for conversational AI
+
+-----
+
+## 🗄️ Database Schema (High-Level)
+
+The high-level database architecture consists of the following key tables:
+
+```yaml
+tickets
+messages
+ticket_statuses
+ticket_reviews
+audit_logs
+business_settings
+product_insights
 ```
 
-Or customize the widget URL:
+Full schema is available in: `supabase-setup.sql`
 
-```html
-<script>
-  window.SUPPORT_AI_URL = "https://yourapp.vercel.app/widget";
-</script>
-<script src="https://yourapp.vercel.app/embed.js"></script>
-```
+-----
 
-### Option 2: Direct iframe integration
-
-```html
-<iframe 
-  src="https://yourapp.vercel.app/widget"
-  style="width: 400px; height: 600px; border: none; border-radius: 16px;"
-  allowtransparency="true">
-</iframe>
-```
-
-## Testing the Flow
-
-### 1. Customer Chat → AI Response
-
-1. Visit http://localhost:3000/widget
-2. Type a message (e.g., "How do I reset my password?")
-3. The AI assistant will respond automatically via OpenAI
-4. Messages are saved to Supabase and update in real-time
-
-### 2. Request Human Support
-
-1. After starting a conversation, click "Request human support"
-2. The ticket status updates and is visible in the dashboard
-
-### 3. Agent Response
-
-1. Log in at http://localhost:3000/login
-2. Go to http://localhost:3000/dashboard
-3. Click on a ticket to view the conversation
-4. Respond as an agent - messages sync in real-time via Supabase Realtime
-
-## Project Structure
-
-```
-support-ai/
-├── app/                      # Next.js App Router
-│   ├── (auth)/              # Protected route group
-│   │   └── dashboard/       # Dashboard routes (requires auth)
-│   │       ├── page.tsx     # Tickets list
-│   │       └── tickets/[id]/ # Individual ticket view
-│   ├── widget/              # Widget route
-│   │   └── page.tsx         # Embeddable widget UI
-│   ├── login/               # Login page
-│   │   └── page.tsx
-│   ├── api/                 # API routes
-│   │   ├── tickets/         # Ticket CRUD
-│   │   ├── tickets/[id]/messages/  # Message endpoints
-│   │   └── ai/reply/        # AI proxy endpoint
-│   ├── layout.tsx           # Root layout with QueryProvider
-│   └── page.tsx             # Home page
-├── components/
-│   ├── ui/                  # shadcn/ui components
-│   ├── providers/           # React Query provider
-│   ├── widget/              # Widget components
-│   └── dashboard/           # Dashboard components
-├── lib/
-│   ├── supabaseClient.ts    # Supabase client (client-side)
-│   ├── supabaseServer.ts    # Supabase client (server-side)
-│   ├── utils.ts             # Utility functions (cn helper)
-│   └── hooks/               # React Query hooks
-│       ├── useTickets.ts    # Ticket queries
-│       ├── useMessages.ts   # Message queries & mutations
-│       └── useRealtimeMessages.ts # Realtime subscriptions
-├── middleware.ts            # Auth middleware
-└── README.md
-```
-
-## API Endpoints
-
-### Tickets
-
-- `GET /api/tickets` - List all tickets
-- `POST /api/tickets` - Create a new ticket
-- `GET /api/tickets/[id]` - Get ticket details
-- `POST /api/tickets/[id]/messages` - Add message to ticket
-
-### AI
-
-- `POST /api/ai/reply` - Generate AI response
-  - Body: `{ ticketId?: string, messages: Array<{ role: string, content: string }> }`
-  - Returns: `{ reply: string, text: string }`
-
-## Database Schema (Supabase)
-
-### tickets
-
-- `id` (UUID, primary key)
-- `subject` (TEXT, nullable)
-- `status` (TEXT, default: "open")
-- `created_at` (TIMESTAMP)
-- `customer_id` (UUID, nullable)
-- `assignee_id` (UUID, nullable)
-
-### messages
-
-- `id` (UUID, primary key)
-- `ticket_id` (UUID, foreign key → tickets.id)
-- `sender` (TEXT: "customer", "agent", "ai")
-- `text` (TEXT)
-- `created_at` (TIMESTAMP)
-
-## Real-Time Features
-
-This project uses Supabase Realtime for live updates:
-
-- **Message Updates**: New messages appear instantly in both widget and dashboard
-- **Ticket Updates**: Ticket status changes propagate in real-time
-- **Optimistic Updates**: React Query provides instant UI feedback before server confirmation
-
-Real-time subscriptions are handled via:
-- `useRealtimeMessages(ticketId)` - Subscribe to messages for a specific ticket
-- `useRealtimeTickets()` - Subscribe to ticket list updates
-
-## Deployment
-
-### Vercel (Recommended)
-
-1. Push your code to GitHub
-2. Import project in Vercel
-3. Add environment variables in Vercel dashboard:
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `OPENAI_API_KEY`
-   - `NEXT_PUBLIC_BASE_URL` (your Vercel deployment URL)
-4. Deploy!
-
-### Environment Variables for Production
-
-Make sure to set these in your deployment platform:
-
-- `NEXT_PUBLIC_SUPABASE_URL` (from Supabase dashboard)
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY` (from Supabase dashboard)
-- `OPENAI_API_KEY`
-- `NEXT_PUBLIC_BASE_URL` (your production URL)
-
-## Development Commands
+## ⚙️ Installation
 
 ```bash
-pnpm dev              # Start development server
-pnpm build            # Build for production
-pnpm start            # Start production server
-pnpm lint             # Run linter
+git clone https://github.com/skerrepy/open.cx-mvp
+cd open.cx-mvp
+pnpm install
+pnpm dev
 ```
 
-## React Query Features
+### Environment Variables
 
-- **Automatic Caching**: Query results are cached and reused
-- **Optimistic Updates**: UI updates instantly on mutations
-- **Background Refetching**: Data stays fresh automatically
-- **Error Handling**: Built-in error states and retry logic
+Create `.env.local` and populate it with your keys:
 
-## License
+```makefile
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+OPENAI_API_KEY=
+NEXT_PUBLIC_BASE_URL=
+```
 
-MIT
+### 🔗 Embedding the Widget
 
-## Support
+Copy the embed code from `Settings → Widget Embed Code` in the dashboard, or use this format:
 
-For issues and questions, please open an issue on GitHub.
+```html
+<script src="https://supportai.vercel.app/embed.js" data-business-id="YOUR_ID"></script>
+```
+
+-----
+
+## Design Decisions & Tradeoffs
+
+| Area | Decision | Tradeoff | Reasoning |
+| :--- | :--- | :--- | :--- |
+| **Auth** | Simple single-user ownership model | No multi-tenant orgs & roles yet | Prioritized core flows $\rightarrow$ faster shipping. |
+| **AI Model** | GPT-4o-mini | Slightly less nuanced than full GPT-4 | Optimized for **real-time feel** and token cost. |
+| **Widget** | Simple `<script>` embed | Limited deep customization for now | Prioritized onboarding simplicity. |
+| **Summarization** | Happens once per ticket after 3 messages | May miss very late details | Saves token cost + improves performance. |
+| **Knowledge Base** | Store business info as free-text context | No PDF/doc crawling or RAG yet | Leaves clean upgrade path. |
+
+### Future KB Expansion Path
+
+```rust
+Business Context → Upload Docs → Embed + Search → RAG → Self-improving AI
+```
+
+-----
+
+## Future Improvements (Clear Roadmap)
+
+  * File uploads (screenshots/video from customers).
+  * Knowledge base crawler (Notion / HelpDocs sync).
+  * **RAG** with embeddings search.
+  * Conversation quality scoring model.
+  * Agent assist UI with auto-drafted replies.
+
+-----
+
+## Final Notes
+
+This project was built to prioritize **user experience** and **real product value**, not just technical completeness. The result is a working, polished support system that:
+
+  * Feels production-ready.
+  * Is extensible.
+  * Can evolve into a mature SaaS product.
+
+-----
+
+Would you like to dive deeper into the **Tech Stack**, the **Database Schema**, or perhaps explore the **Tradeoffs** in more detail?
