@@ -28,6 +28,10 @@ export default function AuthLayout({
       title: "Product Insights",
       description: "AI-generated insights from resolved tickets",
     },
+    "/settings": {
+      title: "Business Settings",
+      description: "Configure how your AI assistant interacts with customers",
+    },
   };
 
   const currentHeader = pageHeaders[pathname] || { title: "", description: "" };

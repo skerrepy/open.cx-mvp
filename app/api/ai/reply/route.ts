@@ -14,6 +14,23 @@ export async function POST(req: Request) {
 
     const supabase = await createServerClient();
     
+    // Fetch business settings for the ticket owner
+    let businessSettings = null;
+    if (ticketId) {
+      // Get the ticket to find the owner (assuming tickets have a created_by or similar field)
+      // For now, we'll get the first business_settings entry (assuming single tenant)
+      // In a multi-tenant system, you'd need to link tickets to users/businesses
+      const { data: settings } = await supabase
+        .from("business_settings")
+        .select("*")
+        .limit(1)
+        .maybeSingle();
+      
+      if (settings) {
+        businessSettings = settings;
+      }
+    }
+    
     // Check if ticket status is already needs_human_assistance or closed
     let ticketStatus = "open";
     let customerInfoExtracted = false;
@@ -126,17 +143,38 @@ If any field is not found, set it to null. Only extract if you're confident abou
       }
     }
 
+    // Build business context string for the prompt
+    let businessContextString = "";
+    if (businessSettings) {
+      businessContextString = `Business Name: ${businessSettings.business_name || "Our Company"}
+Primary Language: ${businessSettings.primary_language || "English"}
+Tone: ${businessSettings.ai_tone || "friendly"}
+
+Background Information:
+${businessSettings.business_context || "No additional context provided."}
+
+`;
+    }
+
+    // Get the latest customer message for context
+    const latestCustomerMessage = messages
+      .filter((m: any) => m.role === "user")
+      .slice(-1)[0]?.content || "";
+
     // Enhanced system prompt - AI decides when to transfer based on context
     const enhancedMessages = [
       {
         role: "system",
         content: `You are a helpful AI support assistant. Your primary role is to answer customer questions confidently and provide helpful information.
 
-IMPORTANT GUIDELINES:
+${businessContextString ? `${businessContextString}Customer Message:\n${latestCustomerMessage}\n\n` : ""}IMPORTANT GUIDELINES:
 1. ALWAYS provide helpful, detailed answers to customer questions first
-2. When asked about policies (refunds, returns, shipping, etc.), provide the actual policy information clearly
-3. Be confident in your answers - you should handle most common questions
-4. ONLY indicate transfer to human agent in these specific cases:
+2. When asked about policies (refunds, returns, shipping, etc.), provide the actual policy information clearly based on the Background Information provided above
+3. Match the tone specified above (${businessSettings?.ai_tone || "friendly"}) in all your responses
+4. Respond in ${businessSettings?.primary_language || "English"} language
+5. Use the business name "${businessSettings?.business_name || "Our Company"}" when referring to the company
+6. Be confident in your answers - you should handle most common questions
+7. ONLY indicate transfer to human agent in these specific cases:
    - Customer EXPLICITLY requests to speak with a human agent
    - Customer shows CLEAR dissatisfaction AFTER your answer (e.g., "that doesn't help", "I'm not satisfied")
    - You genuinely cannot answer or are unsure about something that requires human judgment
@@ -148,6 +186,8 @@ DO NOT transfer to human agent when:
 
 RESPONSE FORMAT:
 - Provide your normal helpful response to the customer
+- Match the specified tone (${businessSettings?.ai_tone || "friendly"})
+- Respond in ${businessSettings?.primary_language || "English"}
 - At the END of your response, if you determine the customer needs human assistance, add exactly this marker on a new line: "[[TRANSFER_TO_AGENT]]"
 - If no transfer is needed, do NOT include this marker
 

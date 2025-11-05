@@ -150,16 +150,9 @@ ${Object.entries(tagFrequencies)
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-        {/* Header with Export button */}
-        <div className="flex justify-between items-center">
-          <div>
-            <h2 className="text-2xl font-bold text-slate-900">Product Insights</h2>
-            <p className="text-slate-600 mt-1">
-              AI-generated insights from resolved tickets
-              {isToday && <span className="ml-2 text-sm text-emerald-600">• Updated today</span>}
-            </p>
-          </div>
-          {insightsData && (
+        {/* Export button */}
+        {insightsData && (
+          <div className="flex justify-end">
             <Button
               onClick={handleExportInsights}
               variant="outline"
@@ -168,27 +161,97 @@ ${Object.entries(tagFrequencies)
               <Download className="w-4 h-4 mr-2" />
               Export Insights
             </Button>
-          )}
-        </div>
+          </div>
+        )}
 
         {(insightsLoading || isGenerating) ? (
-          <div className="space-y-4">
+          <div className="space-y-6">
+            {/* Generating/Loading message */}
+            {(isGenerating || insightsLoading) && (
+              <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">
+                <CardContent className="flex flex-col items-center justify-center py-8">
+                  <Lightbulb className="w-12 h-12 text-blue-500 mb-4 animate-pulse" />
+                  <h3 className="text-lg font-semibold text-slate-900 mb-2">
+                    {isGenerating ? "Generating Insights..." : "Loading Insights..."}
+                  </h3>
+                  <p className="text-slate-600 text-center text-sm">
+                    {isGenerating 
+                      ? "Analyzing resolved tickets and extracting insights. This may take a moment..."
+                      : "Please wait..."}
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Summary Card Skeleton */}
             <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">
-              <CardContent className="flex flex-col items-center justify-center py-12">
-                <Lightbulb className="w-12 h-12 text-blue-500 mb-4 animate-pulse" />
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">
-                  {isGenerating ? "Generating Insights..." : "Loading Insights..."}
-                </h3>
-                <p className="text-slate-600 text-center">
-                  {isGenerating 
-                    ? "Analyzing resolved tickets and extracting insights. This may take a moment..."
-                    : "Please wait..."}
-                </p>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-7 w-32" />
+                  <Skeleton className="h-4 w-40" />
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-4 w-5/6" />
+                </div>
               </CardContent>
             </Card>
-            <Skeleton className="h-32 rounded-xl" />
-            <Skeleton className="h-32 rounded-xl" />
-            <Skeleton className="h-64 rounded-xl" />
+
+            {/* Two Column Cards Skeleton */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Recurring Issues Skeleton */}
+              <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">
+                <CardHeader>
+                  <Skeleton className="h-6 w-40 mb-2" />
+                  <Skeleton className="h-4 w-56" />
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div key={i} className="flex items-start gap-3">
+                        <Skeleton className="h-6 w-6 rounded-full flex-shrink-0" />
+                        <Skeleton className="h-4 w-full" />
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Requested Features Skeleton */}
+              <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">
+                <CardHeader>
+                  <Skeleton className="h-6 w-48 mb-2" />
+                  <Skeleton className="h-4 w-52" />
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {[1, 2, 3, 4, 5].map((i) => (
+                      <div key={i} className="flex items-start gap-3">
+                        <Skeleton className="h-6 w-6 rounded-full flex-shrink-0" />
+                        <Skeleton className="h-4 w-full" />
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Pie Chart Skeleton */}
+            <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">
+              <CardHeader>
+                <Skeleton className="h-6 w-56 mb-2" />
+                <Skeleton className="h-4 w-64" />
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-center h-[300px]">
+                  <Skeleton className="h-64 w-64 rounded-full" />
+                </div>
+              </CardContent>
+            </Card>
           </div>
         ) : !insightsData ? (
           <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">

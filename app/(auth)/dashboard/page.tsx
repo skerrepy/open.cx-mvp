@@ -1,16 +1,58 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { useTickets, useRealtimeTickets } from "@/lib/hooks";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import TicketsList from "@/components/dashboard/TicketsList";
 import MessengerView from "@/components/dashboard/MessengerView";
+import { supabase } from "@/lib/supabaseClient";
+import { useQuery } from "@tanstack/react-query";
 
 export default function Dashboard() {
+  const router = useRouter();
+  const [userId, setUserId] = useState<string | null>(null);
   const { data: tickets = [], isLoading } = useTickets();
   
   // Enable real-time updates for tickets list
   useRealtimeTickets();
+
+  // Get current user
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUserId(user?.id || null);
+    };
+    getUser();
+  }, []);
+
+  // Check if business settings exist for onboarding redirect
+  const { data: hasSettings } = useQuery({
+    queryKey: ["business-settings-check", userId],
+    queryFn: async () => {
+      if (!userId) return true; // Don't redirect if no user
+      const { data, error } = await supabase
+        .from("business_settings")
+        .select("id")
+        .eq("owner_user_id", userId)
+        .maybeSingle();
+      
+      if (error && error.code !== "PGRST116") {
+        console.error("Error checking business settings:", error);
+        return true; // Don't redirect on error
+      }
+      return !!data; // Return true if settings exist
+    },
+    enabled: !!userId,
+  });
+
+  // Redirect to settings if no business settings exist
+  useEffect(() => {
+    if (userId && hasSettings === false) {
+      router.push("/settings");
+    }
+  }, [userId, hasSettings, router]);
 
   const needsHumanCount = tickets.filter(
     (t) => t.status === "needs_human_assistance"

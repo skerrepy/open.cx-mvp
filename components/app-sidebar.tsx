@@ -8,6 +8,7 @@ import {
   Ticket,
   LogOut,
   Lightbulb,
+  Settings,
 } from "lucide-react";
 import {
   Sidebar,
@@ -51,6 +52,11 @@ export function AppSidebar() {
       title: "Insights",
       url: "/insights",
       icon: Lightbulb,
+    },
+    {
+      title: "Business Settings",
+      url: "/settings",
+      icon: Settings,
     },
   ];
 
