@@ -5,7 +5,7 @@
   }
 
   const config = {
-    widgetUrl: window.SUPPORT_AI_URL || "http://localhost:3000/widget",
+    widgetUrl: window.SUPPORT_AI_URL || `${window.location.origin}/widget`,
     position: "bottom-right",
   };
 
