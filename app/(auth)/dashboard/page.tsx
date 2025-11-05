@@ -28,13 +28,14 @@ export default function Dashboard() {
   }, []);
 
   // Check if business settings exist for onboarding redirect
+  // In single-tenant system, there's only one business
   const { data: hasSettings } = useQuery({
-    queryKey: ["business-settings-check", userId],
+    queryKey: ["business-settings-check"],
     queryFn: async () => {
-      if (!userId) return true; // Don't redirect if no user
       const { data, error } = await supabase
         .from("business_settings")
         .select("id")
+        .limit(1)
         .maybeSingle();
       
       if (error && error.code !== "PGRST116") {
@@ -43,15 +44,14 @@ export default function Dashboard() {
       }
       return !!data; // Return true if settings exist
     },
-    enabled: !!userId,
   });
 
   // Redirect to settings if no business settings exist
   useEffect(() => {
-    if (userId && hasSettings === false) {
+    if (hasSettings === false) {
       router.push("/settings");
     }
-  }, [userId, hasSettings, router]);
+  }, [hasSettings, router]);
 
   const needsHumanCount = tickets.filter(
     (t) => t.status === "needs_human_assistance"
