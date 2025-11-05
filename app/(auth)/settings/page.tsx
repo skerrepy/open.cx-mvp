@@ -16,7 +16,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Save, Loader2, Smile, Briefcase, ScrollText, Coffee } from "lucide-react";
+import { Save, Loader2, Smile, Briefcase, ScrollText, Coffee, Code, Copy, Check } from "lucide-react";
 
 interface BusinessSettings {
   id?: string;
@@ -36,6 +36,7 @@ export default function BusinessSettingsPage() {
   const [aiTone, setAiTone] = useState("friendly");
   const [businessContext, setBusinessContext] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // Get current user
   useEffect(() => {
@@ -124,6 +125,26 @@ export default function BusinessSettingsPage() {
       await saveMutation.mutateAsync();
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const widgetCode = `<script src="${typeof window !== 'undefined' ? window.location.origin : ''}/embed.js"></script>`;
+
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(widgetCode);
+      setCopied(true);
+      toast({
+        title: "Copied!",
+        description: "Widget code copied to clipboard.",
+      });
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      toast({
+        title: "Error",
+        description: "Failed to copy code.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -278,6 +299,56 @@ export default function BusinessSettingsPage() {
                 </Button>
               </div>
             </form>
+          </CardContent>
+        </Card>
+
+        {/* Widget Implementation Card */}
+        <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm mt-6">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Code className="w-5 h-5 text-slate-700" />
+              <CardTitle className="text-xl font-bold text-slate-900">Add Widget to Your Website</CardTitle>
+            </div>
+            <CardDescription>
+              Copy and paste this code snippet into your website to add the support chat widget.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="relative">
+                <pre className="bg-slate-900 text-slate-100 p-4 rounded-lg overflow-x-auto text-sm font-mono">
+                  <code>{widgetCode}</code>
+                </pre>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={copyToClipboard}
+                  className="absolute top-2 right-2 bg-slate-800 text-white hover:bg-slate-700 border-slate-700"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="w-4 h-4 mr-2" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4 mr-2" />
+                      Copy
+                    </>
+                  )}
+                </Button>
+              </div>
+              
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-blue-900 mb-2">Installation Steps:</h4>
+                <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
+                  <li>Copy the code snippet above</li>
+                  <li>Paste it before the closing <code className="bg-blue-100 px-1 rounded">&lt;/body&gt;</code> tag in your HTML</li>
+                  <li>The widget will automatically appear on your website</li>
+                </ol>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
