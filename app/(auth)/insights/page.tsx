@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { useQuery } from "@tanstack/react-query";
+import axiosInstance from "@/lib/axios";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -23,52 +23,89 @@ export default function InsightsPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const hasAttemptedGenerationRef = useRef(false);
 
-  // Fetch latest insights
-  const { data: insightsResponse, isLoading: insightsLoading, refetch } = useQuery({
-    queryKey: ["insights"],
-    queryFn: async () => {
-      const response = await fetch("/api/insights/latest");
-      const data = await response.json();
-      return data;
-    },
-  });
+  const [insightsData, setInsightsData] = useState<any>(null);
+  const [insightsLoading, setInsightsLoading] = useState(true);
+  const [isToday, setIsToday] = useState(false);
 
-  const insightsData = insightsResponse?.insights;
-  const isToday = insightsResponse?.isToday;
-  const needsGeneration = insightsResponse?.needsGeneration;
+  // Fetch latest insights using axios
+  const fetchInsights = async () => {
+    setInsightsLoading(true);
+    try {
+      const response = await axiosInstance.get("/api/insights/latest");
+      const data = response.data;
+      console.log("Fetched insights from /api/insights/latest:", data);
+      
+      // Extract insights - API returns { insights: {...}, isToday: boolean }
+      const insights = data.insights;
+      console.log("Extracted insights:", insights);
+      console.log("isToday:", data.isToday);
+      
+      // Set state - if insights is null/undefined, that's okay, we'll show the empty state
+      setInsightsData(insights || null);
+      setIsToday(data.isToday || false);
+      
+      // Log final state for debugging
+      console.log("State after fetch:", { 
+        hasInsights: !!insights, 
+        isToday: data.isToday || false,
+        insightsKeys: insights ? Object.keys(insights) : 'none'
+      });
+    } catch (error: any) {
+      console.error("Error fetching insights:", error);
+      setInsightsData(null);
+      setIsToday(false);
+    } finally {
+      setInsightsLoading(false);
+    }
+  };
 
-  // Auto-generate insights on page load if not generated today (only once)
+  // Initial fetch
+  useEffect(() => {
+    fetchInsights();
+  }, []);
+
+  // Auto-generate insights on page load if no insights exist for today
+  // Cross-reference with database: if insights exist for today, use them; otherwise generate
   useEffect(() => {
     const generateIfNeeded = async () => {
       // Only generate if:
       // 1. Not currently loading
       // 2. Not currently generating
       // 3. Haven't already attempted generation (using ref to persist across renders)
-      // 4. Response has been loaded (not undefined)
-      // 5. No insights for today (isToday is false or undefined)
+      // 4. No insights for today (isToday is false)
+      const needsGeneration = !isToday;
+      
       if (
         !insightsLoading && 
         !isGenerating && 
         !hasAttemptedGenerationRef.current &&
-        insightsResponse !== undefined && 
-        isToday === false
+        needsGeneration
       ) {
         hasAttemptedGenerationRef.current = true; // Mark as attempted to prevent retries
         setIsGenerating(true);
         try {
-          const response = await fetch("/api/insights/generate", { method: "POST" });
-          const data = await response.json();
+          // API will check database directly - if insights exist for today, it returns them
+          // Otherwise, it generates new insights
+          const response = await axiosInstance.post("/api/insights/generate");
+          const data = response.data;
+          console.log("Generate response:", data);
+          
+          // If insights were returned (either cached or newly generated), use them
           if (data.insights) {
-            // Refetch insights after generation
-            await refetch();
-          } else if (data.message) {
-            // If it says insights already generated, refetch to get them
-            if (data.message.includes("already generated")) {
-              await refetch();
-            }
+            console.log("Setting insights data from generate:", data.insights);
+            setInsightsData(data.insights);
+            setIsToday(true);
+            setIsGenerating(false);
+            return; // Exit early since we have the data
           }
+          
+          // If no insights returned, refetch to get latest state
+          console.log("No insights in generate response, refetching...");
+          await fetchInsights();
         } catch (error) {
           console.error("Error generating insights:", error);
+          // Refetch on error to get latest state
+          await fetchInsights();
         } finally {
           setIsGenerating(false);
         }
@@ -76,23 +113,35 @@ export default function InsightsPage() {
     };
 
     generateIfNeeded();
-    // Only run when these specific values change, not refetch
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [insightsLoading, isToday, isGenerating, insightsResponse]);
+  }, [insightsLoading, isToday, isGenerating]);
 
   // Fetch tickets with tags for pie chart
-  const { data: ticketsWithTags, isLoading: tagsLoading } = useQuery({
-    queryKey: ["tickets-tags"],
-    queryFn: async () => {
+  const [ticketsWithTags, setTicketsWithTags] = useState<any[]>([]);
+  const [tagsLoading, setTagsLoading] = useState(true);
+
+  const fetchTicketsWithTags = async () => {
+    setTagsLoading(true);
+    try {
       const { data, error } = await supabase
         .from("tickets")
         .select("tags")
         .not("tags", "is", null);
       
       if (error) throw error;
-      return data || [];
-    },
-  });
+      setTicketsWithTags(data || []);
+    } catch (error) {
+      console.error("Error fetching tickets with tags:", error);
+      setTicketsWithTags([]);
+    } finally {
+      setTagsLoading(false);
+    }
+  };
+
+  // Initial fetch for tickets
+  useEffect(() => {
+    fetchTicketsWithTags();
+  }, []);
 
   // Calculate tag frequencies for pie chart
   const tagFrequencies = ticketsWithTags?.reduce((acc: Record<string, number>, ticket: any) => {
@@ -267,6 +316,14 @@ ${Object.entries(tagFrequencies)
               <p className="text-slate-600 text-center">
                 No resolved tickets found to generate insights from. Insights will be generated automatically once you have resolved tickets.
               </p>
+              {/* Debug info */}
+              {process.env.NODE_ENV === 'development' && (
+                <div className="mt-4 text-xs text-slate-400">
+                  Debug: insightsData={insightsData ? 'exists' : 'null'}, 
+                  insightsLoading={insightsLoading ? 'true' : 'false'}, 
+                  isGenerating={isGenerating ? 'true' : 'false'}
+                </div>
+              )}
             </CardContent>
           </Card>
         ) : (
