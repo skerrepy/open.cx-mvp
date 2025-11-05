@@ -18,18 +18,20 @@ export async function middleware(request: NextRequest) {
     }
 
     const response = NextResponse.next();
-    // Set headers to allow iframe embedding from any origin
-    // Remove X-Frame-Options to allow embedding (or it will block)
+    
+    // Remove X-Frame-Options to allow embedding
     response.headers.delete("X-Frame-Options");
-    // Remove any existing CSP headers that might conflict
-    response.headers.delete("Content-Security-Policy");
-    // Set CSP to allow embedding from any origin
-    // Using * alone should work according to CSP spec
-    // If browser requires explicit schemes, this will allow https and http origins
-    response.headers.set("Content-Security-Policy", "frame-ancestors *");
+    response.headers.delete("x-frame-options");
+    
+    // Override CSP with permissive policy that allows embedding from any origin
+    // Use explicit scheme syntax to avoid browser parsing issues with *
+    response.headers.set("Content-Security-Policy", "frame-ancestors 'self' https: http:;");
+    
+    // Set CORS headers
     response.headers.set("Access-Control-Allow-Origin", "*");
     response.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     response.headers.set("Access-Control-Allow-Headers", "Content-Type");
+    
     return response;
   }
 
