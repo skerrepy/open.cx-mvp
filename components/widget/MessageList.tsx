@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import EndChatButton from "./EndChatButton";
@@ -19,6 +20,15 @@ interface MessageListProps {
 }
 
 export default function MessageList({ messages, isLoading, isAgentTyping = false, onEndChat }: MessageListProps) {
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [messages.length, isLoading, isAgentTyping]);
+
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-3">
       {messages.map((m, i) => {
@@ -116,6 +126,7 @@ export default function MessageList({ messages, isLoading, isAgentTyping = false
           </div>
         </div>
       )}
+      <div ref={messagesEndRef} />
     </div>
   );
 }

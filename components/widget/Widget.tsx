@@ -380,14 +380,8 @@ export default function Widget() {
         ticketStatus = "open";
         setTicketId(ticket.id);
         
-        // Detect language on first message (non-blocking - fire and forget)
-        axios.post("/api/detect-language", {
-          ticketId: currentTicketId,
-          text: messageText,
-        }).catch((err) => {
-          console.error("Language detection error:", err);
-          // Fail silently - don't block message sending
-        });
+        // Language detection will happen automatically after 3 customer messages
+        // No need to trigger it on first message
       } else {
         // Send to server (realtime will add it again, but we'll handle duplicates)
         await sendMessageMutation.mutateAsync({
@@ -406,6 +400,18 @@ export default function Widget() {
         
         if (latestStatus) {
           ticketStatus = latestStatus.status;
+        }
+
+        // Trigger language detection after 3 customer messages (non-blocking)
+        const customerMessageCount = messages.filter(m => m.sender === "customer").length + 1; // +1 for current message
+        if (customerMessageCount === 3) {
+          axios.post("/api/detect-language", {
+            ticketId: currentTicketId,
+            text: messageText,
+          }).catch((err) => {
+            console.error("Language detection error:", err);
+            // Fail silently - don't block message sending
+          });
         }
       }
 

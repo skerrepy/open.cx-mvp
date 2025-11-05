@@ -12,7 +12,16 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import MessageBubble from "./MessageBubble";
+import AgentSuggestionChips from "./AgentSuggestionChips";
 import { Message } from "@/lib/hooks/useTickets";
 
 interface MessengerViewProps {
@@ -123,6 +132,8 @@ function TicketChat({
   const [summary, setSummary] = useState<string | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
+  const [agentName, setAgentName] = useState<string>("");
+  const [showCloseDialog, setShowCloseDialog] = useState(false);
   const queryClient = useQueryClient();
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -130,6 +141,19 @@ function TicketChat({
 
   // Enable real-time updates
   useRealtimeMessages(ticketId);
+
+  // Get current agent info
+  useEffect(() => {
+    const getAgentInfo = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        // Get display name from user metadata (full_name or name)
+        const name = user.user_metadata?.full_name || user.user_metadata?.name || "Support Agent";
+        setAgentName(name);
+      }
+    };
+    getAgentInfo();
+  }, []);
 
   // Load summary from ticket if it exists and show it automatically
   useEffect(() => {
@@ -200,10 +224,13 @@ function TicketChat({
     if (scrollAreaRef.current && ticket?.messages) {
       const scrollContainer = scrollAreaRef.current.querySelector('[data-radix-scroll-area-viewport]');
       if (scrollContainer) {
-        scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        // Use setTimeout to ensure DOM is updated
+        setTimeout(() => {
+          scrollContainer.scrollTop = scrollContainer.scrollHeight;
+        }, 100);
       }
     }
-  }, [ticket?.messages?.length]);
+  }, [ticket?.messages?.length, isSending]);
 
   const handleSendMessage = async () => {
     if (!input.trim() || !ticket) return;
@@ -211,6 +238,21 @@ function TicketChat({
     if (ticket.status === "closed") {
       alert("This ticket is closed. You cannot send messages.");
       return;
+    }
+
+    // Get current user for assignment
+    const { data: { user } } = await supabase.auth.getUser();
+    const userId = user?.id;
+
+    // Auto-assign ticket if not already assigned
+    if (userId && !ticket.assignee_id) {
+      await supabase
+        .from("tickets")
+        .update({ assignee_id: userId })
+        .eq("id", ticketId);
+      
+      queryClient.invalidateQueries({ queryKey: ["ticket", ticketId] });
+      queryClient.invalidateQueries({ queryKey: ["tickets"] });
     }
 
     // Stop typing indicator
@@ -232,8 +274,12 @@ function TicketChat({
     );
   };
 
+  const handleChipSelect = (text: string) => {
+    setInput(text);
+  };
+
   const handleCloseTicket = async () => {
-    if (!confirm("Are you sure you want to close this ticket?")) return;
+    setShowCloseDialog(false);
 
     // Add "closed" status to status log
     await supabase
@@ -357,8 +403,30 @@ function TicketChat({
               {ticket.subject || "No subject"}
             </h2>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
-                Needs Human Assistance
+              {/* Customer info */}
+              {(ticket.customer_first_name || ticket.customer_last_name || ticket.customer_email) && (
+                <span className="text-sm text-gray-600">
+                  {ticket.customer_first_name || ticket.customer_last_name 
+                    ? `${ticket.customer_first_name || ""} ${ticket.customer_last_name || ""}`.trim()
+                    : ""}
+                  {ticket.customer_email && (
+                    <span className="text-gray-500">
+                      {ticket.customer_first_name || ticket.customer_last_name ? " • " : ""}
+                      {ticket.customer_email}
+                    </span>
+                  )}
+                </span>
+              )}
+              <span
+                className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                  ticket.status === "open"
+                    ? "bg-green-100 text-green-800"
+                    : ticket.status === "closed"
+                    ? "bg-gray-100 text-gray-800"
+                    : "bg-yellow-100 text-yellow-800"
+                }`}
+              >
+                {ticket.status === "needs_human_assistance" ? "Needs Human Assistance" : ticket.status}
               </span>
               <span className="text-sm text-gray-500">
                 {messages.length} message{messages.length !== 1 ? "s" : ""}
@@ -373,7 +441,7 @@ function TicketChat({
           <div className="flex gap-2">
             <Button
               onClick={handleSummarize}
-              variant="outline"
+              variant="default"
               size="sm"
               disabled={isSummarizing || !ticket?.messages || ticket.messages.length === 0}
             >
@@ -381,20 +449,13 @@ function TicketChat({
             </Button>
             {ticket.status !== "closed" && (
               <Button
-                onClick={handleCloseTicket}
-                variant="outline"
+                onClick={() => setShowCloseDialog(true)}
+                variant="destructive"
                 size="sm"
               >
                 Close Ticket
               </Button>
             )}
-            <Button
-              onClick={onClose}
-              variant="ghost"
-              size="sm"
-            >
-              Close
-            </Button>
           </div>
         </div>
       </div>
@@ -458,34 +519,67 @@ function TicketChat({
 
       {/* Input */}
       {ticket.status !== "closed" ? (
-        <div className="flex-shrink-0 border-t bg-white p-4">
-          <div className="flex gap-2 items-end">
-            <Textarea
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyPress}
-              placeholder="Type your response to the customer... (Markdown supported)"
-              disabled={isSending}
-              className="flex-1 min-h-[80px] max-h-[200px] resize-y"
-              rows={3}
-            />
-            <Button
-              onClick={handleSendMessage}
-              disabled={!input.trim() || isSending}
-              className="self-end"
-            >
-              {isSending ? "Sending..." : "Send"}
-            </Button>
+        <>
+          <AgentSuggestionChips
+            customerName={ticket.customer_first_name ? `${ticket.customer_first_name} ${ticket.customer_last_name || ""}`.trim() : undefined}
+            customerEmail={ticket.customer_email || undefined}
+            agentName={agentName}
+            onSelect={handleChipSelect}
+          />
+          <div className="flex-shrink-0 border-t bg-white p-4">
+            <div className="flex gap-2 items-end">
+              <Textarea
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyPress}
+                placeholder="Type your response to the customer... (Markdown supported)"
+                disabled={isSending}
+                className="flex-1 min-h-[80px] max-h-[200px] resize-y"
+                rows={3}
+              />
+              <Button
+                onClick={handleSendMessage}
+                disabled={!input.trim() || isSending}
+                className="self-end"
+              >
+                {isSending ? "Sending..." : "Send"}
+              </Button>
+            </div>
+            <p className="text-xs text-gray-500 mt-2">
+              You can use Markdown formatting: **bold**, *italic*, `code`, lists, etc.
+            </p>
           </div>
-          <p className="text-xs text-gray-500 mt-2">
-            You can use Markdown formatting: **bold**, *italic*, `code`, lists, etc.
-          </p>
-        </div>
+        </>
       ) : (
         <div className="flex-shrink-0 border-t bg-gray-100 p-4 text-center text-gray-500">
           This ticket is closed. No further messages can be sent.
         </div>
       )}
+
+      <Dialog open={showCloseDialog} onOpenChange={setShowCloseDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Close Ticket</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to close this ticket? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowCloseDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleCloseTicket}
+            >
+              Close Ticket
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

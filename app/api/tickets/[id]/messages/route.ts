@@ -17,15 +17,28 @@ export async function POST(
 
     const supabase = await createServerClient();
 
-    // Verify ticket exists
+    // Get current user for assignment
+    const { data: { user } } = await supabase.auth.getUser();
+    const userId = user?.id;
+
+    // Verify ticket exists and get its current status
     const { data: ticket, error: ticketError } = await supabase
       .from("tickets")
-      .select("id")
+      .select("id, assignee_id")
       .eq("id", params.id)
       .single();
 
     if (ticketError || !ticket) {
       return NextResponse.json({ error: "Ticket not found" }, { status: 404 });
+    }
+
+    // Auto-assign ticket if agent is sending a message and ticket is not assigned
+    if (sender === "agent" && userId && !ticket.assignee_id) {
+      // Assign the ticket to the agent
+      await supabase
+        .from("tickets")
+        .update({ assignee_id: userId })
+        .eq("id", params.id);
     }
 
     const { data: msg, error } = await supabase
@@ -39,6 +52,16 @@ export async function POST(
       .single();
 
     if (error) throw error;
+
+    // Create audit log for agent message (just store agent ID, no redundant user info)
+    if (sender === "agent" && userId) {
+      await supabase.from("audit_logs").insert({
+        ticket_id: params.id,
+        action_type: "agent_response",
+        actor_type: "agent",
+        actor_id: userId,
+      });
+    }
 
     return NextResponse.json({
       ...msg,

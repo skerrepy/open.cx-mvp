@@ -1,14 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import MessageBubble from "./MessageBubble";
 import TicketReviews from "./TicketReviews";
+import AgentSuggestionChips from "./AgentSuggestionChips";
 import { useTicket, useSendMessage, useRealtimeMessages } from "@/lib/hooks";
 import { Message } from "@/lib/hooks/useTickets";
 import { supabase } from "@/lib/supabaseClient";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface TicketViewProps {
   ticketId: string;
@@ -18,10 +27,46 @@ export default function TicketView({ ticketId }: TicketViewProps) {
   const { data: ticket, isLoading: ticketLoading } = useTicket(ticketId);
   const { mutate: sendMessage, isPending: isSending } = useSendMessage(ticketId);
   const [input, setInput] = useState("");
+  const [agentName, setAgentName] = useState<string>("");
+  const [showCloseDialog, setShowCloseDialog] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
   // Enable real-time updates
   useRealtimeMessages(ticketId);
+
+  // Get current agent info
+  useEffect(() => {
+    const getAgentInfo = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        // Get display name from user metadata (full_name or name)
+        const name = user.user_metadata?.full_name || user.user_metadata?.name || "Support Agent";
+        setAgentName(name);
+      }
+    };
+    getAgentInfo();
+  }, []);
+
+  // Transform messages for MessageBubble component (must be before conditional returns)
+  const messages: Array<{
+    id: string;
+    sender: string;
+    text: string;
+    createdAt: string;
+  }> = ticket ? (ticket.messages || []).map((msg) => ({
+    id: msg.id,
+    sender: msg.sender,
+    text: msg.text,
+    createdAt: msg.created_at,
+  })) : [];
+
+  // Auto-scroll to bottom when new messages arrive (must be before conditional returns)
+  useEffect(() => {
+    if (messagesEndRef.current && messages.length > 0) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+  }, [messages.length, isSending]);
 
   const handleSendMessage = async () => {
     if (!input.trim() || !ticket) return;
@@ -32,6 +77,10 @@ export default function TicketView({ ticketId }: TicketViewProps) {
       return;
     }
 
+    // Get current user for assignment
+    const { data: { user } } = await supabase.auth.getUser();
+    const userId = user?.id;
+
     // Ticket should already be needs_human_assistance if agent is responding
     // But if for some reason it's still open, add status to log
     if (ticket.status === "open") {
@@ -41,6 +90,17 @@ export default function TicketView({ ticketId }: TicketViewProps) {
           ticket_id: ticketId,
           status: "needs_human_assistance",
         });
+      
+      queryClient.invalidateQueries({ queryKey: ["ticket", ticketId] });
+      queryClient.invalidateQueries({ queryKey: ["tickets"] });
+    }
+
+    // Auto-assign ticket if not already assigned
+    if (userId && !ticket.assignee_id) {
+      await supabase
+        .from("tickets")
+        .update({ assignee_id: userId })
+        .eq("id", ticketId);
       
       queryClient.invalidateQueries({ queryKey: ["ticket", ticketId] });
       queryClient.invalidateQueries({ queryKey: ["tickets"] });
@@ -59,8 +119,12 @@ export default function TicketView({ ticketId }: TicketViewProps) {
     );
   };
 
+  const handleChipSelect = (text: string) => {
+    setInput(text);
+  };
+
   const handleCloseTicket = async () => {
-    if (!confirm("Are you sure you want to close this ticket?")) return;
+    setShowCloseDialog(false);
 
     // Add "closed" status to status log
     await supabase
@@ -114,19 +178,6 @@ export default function TicketView({ ticketId }: TicketViewProps) {
     );
   }
 
-  // Transform messages for MessageBubble component
-  const messages: Array<{
-    id: string;
-    sender: string;
-    text: string;
-    createdAt: string;
-  }> = (ticket.messages || []).map((msg) => ({
-    id: msg.id,
-    sender: msg.sender,
-    text: msg.text,
-    createdAt: msg.created_at,
-  }));
-
   return (
     <div className="bg-white rounded-lg shadow-lg overflow-hidden flex flex-col h-[calc(100vh-8rem)]">
       <div className="p-4 border-b bg-gray-50">
@@ -135,7 +186,21 @@ export default function TicketView({ ticketId }: TicketViewProps) {
             <h2 className="text-xl font-semibold text-gray-900">
               {ticket.subject || "No subject"}
             </h2>
-            <div className="flex items-center gap-2 mt-2">
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              {/* Customer info */}
+              {(ticket.customer_first_name || ticket.customer_last_name || ticket.customer_email) && (
+                <span className="text-sm text-gray-600">
+                  {ticket.customer_first_name || ticket.customer_last_name 
+                    ? `${ticket.customer_first_name || ""} ${ticket.customer_last_name || ""}`.trim()
+                    : ""}
+                  {ticket.customer_email && (
+                    <span className="text-gray-500">
+                      {ticket.customer_first_name || ticket.customer_last_name ? " • " : ""}
+                      {ticket.customer_email}
+                    </span>
+                  )}
+                </span>
+              )}
               {ticket.language && (
                 <span className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-700">
                   {ticket.language}
@@ -159,9 +224,8 @@ export default function TicketView({ ticketId }: TicketViewProps) {
           </div>
           {ticket.status !== "closed" && (
             <Button
-              onClick={handleCloseTicket}
-              variant="outline"
-              className="bg-white hover:bg-gray-100"
+              onClick={() => setShowCloseDialog(true)}
+              variant="destructive"
             >
               Close Ticket
             </Button>
@@ -179,6 +243,7 @@ export default function TicketView({ ticketId }: TicketViewProps) {
           {messages.map((message) => (
             <MessageBubble key={message.id} message={message} ticketLanguage={ticket.language || undefined} />
           ))}
+          <div ref={messagesEndRef} />
         </TabsContent>
 
         <TabsContent value="reviews" className="flex-1 overflow-y-auto p-4 bg-gray-50 mt-0">
@@ -187,30 +252,63 @@ export default function TicketView({ ticketId }: TicketViewProps) {
       </Tabs>
 
       {ticket.status !== "closed" ? (
-        <div className="border-t bg-white p-4">
-          <div className="flex gap-2">
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Type your response to the customer..."
-              disabled={isSending}
-              className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-            />
-            <Button
-              onClick={handleSendMessage}
-              disabled={!input.trim() || isSending}
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-            >
-              {isSending ? "Sending..." : "Send"}
-            </Button>
+        <>
+          <AgentSuggestionChips
+            customerName={ticket.customer_first_name ? `${ticket.customer_first_name} ${ticket.customer_last_name || ""}`.trim() : undefined}
+            customerEmail={ticket.customer_email || undefined}
+            agentName={agentName}
+            onSelect={handleChipSelect}
+          />
+          <div className="border-t bg-white p-4">
+            <div className="flex gap-2">
+              <input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyPress={handleKeyPress}
+                placeholder="Type your response to the customer..."
+                disabled={isSending}
+                className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+              />
+              <Button
+                onClick={handleSendMessage}
+                disabled={!input.trim() || isSending}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+              >
+                {isSending ? "Sending..." : "Send"}
+              </Button>
+            </div>
           </div>
-        </div>
+        </>
       ) : (
         <div className="border-t bg-gray-100 p-4 text-center text-gray-500">
           This ticket is closed. No further messages can be sent.
         </div>
       )}
+
+      <Dialog open={showCloseDialog} onOpenChange={setShowCloseDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Close Ticket</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to close this ticket? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowCloseDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleCloseTicket}
+            >
+              Close Ticket
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

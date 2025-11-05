@@ -96,6 +96,10 @@ export default function AdminDashboard() {
   const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [customDate, setCustomDate] = useState<Date | undefined>(undefined);
   const [firstTicketDate, setFirstTicketDate] = useState<Date | null>(null);
+  const [activeTab, setActiveTab] = useState("analytics");
+  const [agentsPerformance, setAgentsPerformance] = useState<any[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [agentsMap, setAgentsMap] = useState<Map<string, { email: string; name: string }>>(new Map());
 
   // Enable real-time updates for tickets
   useRealtimeTickets();
@@ -121,6 +125,85 @@ export default function AdminDashboard() {
     
     fetchFirstTicketDate();
   }, []);
+
+  // Fetch agents performance
+  const fetchAgentsPerformance = async () => {
+    setAgentsLoading(true);
+    try {
+      const response = await fetch("/api/analytics/agents");
+      const data = await response.json();
+      
+      if (data.error) {
+        console.error("Error from API:", data.error);
+      } else {
+        setAgentsPerformance(data.agents || []);
+        
+        // Map agent info from API response
+        const agentInfoMap = new Map<string, { email: string; name: string }>();
+        
+        // Try to fetch user info for agents
+        const agentIds = (data.agents || []).map((a: any) => a.agentId);
+        try {
+          const userInfoResponse = await fetch("/api/users/info", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userIds: agentIds }),
+          });
+          
+          if (userInfoResponse.ok) {
+            const userInfoData = await userInfoResponse.json();
+            
+            (data.agents || []).forEach((agent: any) => {
+              const userInfo = userInfoData.users?.[agent.agentId];
+              // Use name and email from API response (which now comes from Supabase auth)
+              const email = agent.email || userInfo?.email || agent.agentId.substring(0, 8) + "...";
+              const name = agent.name || userInfo?.name || agent.email?.split("@")[0] || `Agent ${agent.agentId.substring(0, 8)}`;
+              
+              agentInfoMap.set(agent.agentId, {
+                email: email,
+                name: name,
+              });
+            });
+          } else {
+            // Fallback if user info fetch fails - use data from API
+            (data.agents || []).forEach((agent: any) => {
+              const email = agent.email || agent.agentId.substring(0, 8) + "...";
+              const name = agent.name || agent.email?.split("@")[0] || `Agent ${agent.agentId.substring(0, 8)}`;
+              
+              agentInfoMap.set(agent.agentId, {
+                email: email,
+                name: name,
+              });
+            });
+          }
+        } catch (error) {
+          // Fallback if user info fetch fails - use data from API
+          (data.agents || []).forEach((agent: any) => {
+            const email = agent.email || agent.agentId.substring(0, 8) + "...";
+            const name = agent.name || agent.email?.split("@")[0] || `Agent ${agent.agentId.substring(0, 8)}`;
+            
+            agentInfoMap.set(agent.agentId, {
+              email: email,
+              name: name,
+            });
+          });
+        }
+        
+        setAgentsMap(agentInfoMap);
+      }
+    } catch (error) {
+      console.error("Error fetching agents performance:", error);
+    } finally {
+      setAgentsLoading(false);
+    }
+  };
+
+  // Fetch agents performance when tab is active
+  useEffect(() => {
+    if (activeTab === "performers") {
+      fetchAgentsPerformance();
+    }
+  }, [activeTab]);
 
   const fetchAnalytics = async () => {
     // Don't fetch if period is custom but no date is selected
@@ -268,8 +351,6 @@ export default function AdminDashboard() {
     return new Intl.NumberFormat('en-US').format(value);
   };
 
-  const [activeTab, setActiveTab] = useState("analytics");
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -288,6 +369,12 @@ export default function AdminDashboard() {
                 className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-600 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:shadow-lg rounded-lg px-6 font-semibold transition-all"
               >
                 Audit Logs
+              </TabsTrigger>
+              <TabsTrigger 
+                value="performers" 
+                className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-600 data-[state=active]:to-purple-600 data-[state=active]:text-white data-[state=active]:shadow-lg rounded-lg px-6 font-semibold transition-all"
+              >
+                Top Performers
               </TabsTrigger>
             </TabsList>
             
@@ -935,6 +1022,124 @@ export default function AdminDashboard() {
                         </div>
                       ))
                     )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="performers" className="mt-0">
+            <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="text-2xl font-bold text-slate-900">Top Performers</CardTitle>
+                <CardDescription>Agent performance metrics based on closed tickets</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {agentsLoading ? (
+                  <div className="space-y-4">
+                    {[1, 2, 3, 4].map((i) => (
+                      <Skeleton key={i} className="h-24 rounded-xl" />
+                    ))}
+                  </div>
+                ) : agentsPerformance.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Users className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+                    <p className="text-slate-500">No agent performance data available</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {agentsPerformance.map((agent, index) => {
+                      const agentInfo = agentsMap.get(agent.agentId);
+                      const formatTime = (minutes: number | null) => {
+                        if (!minutes) return "N/A";
+                        if (minutes < 60) return `${Math.round(minutes)}m`;
+                        const hours = Math.floor(minutes / 60);
+                        const mins = Math.round(minutes % 60);
+                        return `${hours}h ${mins}m`;
+                      };
+
+                      return (
+                        <div
+                          key={agent.agentId}
+                          className="p-6 border border-slate-200 rounded-xl bg-white hover:shadow-lg transition-all duration-200 hover:border-blue-300"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                              {/* Rank Badge */}
+                              <div className={`flex items-center justify-center w-12 h-12 rounded-full font-bold text-lg ${
+                                index === 0 
+                                  ? "bg-gradient-to-r from-yellow-400 to-yellow-500 text-white"
+                                  : index === 1
+                                  ? "bg-gradient-to-r from-slate-300 to-slate-400 text-white"
+                                  : index === 2
+                                  ? "bg-gradient-to-r from-amber-600 to-amber-700 text-white"
+                                  : "bg-slate-100 text-slate-600"
+                              }`}>
+                                {index + 1}
+                              </div>
+                              
+                              {/* Agent Info */}
+                              <div>
+                                <div className="font-semibold text-slate-900 text-lg">
+                                  {agentInfo?.name || `Agent ${agent.agentId.substring(0, 8)}`}
+                                </div>
+                                <div className="text-sm text-slate-500">
+                                  {agentInfo?.email || agent.agentId.substring(0, 8) + "..."}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Metrics */}
+                            <div className="flex items-center gap-8">
+                              {/* Tickets Closed */}
+                              <div className="text-center">
+                                <div className="text-2xl font-bold text-slate-900">
+                                  {agent.ticketsClosed}
+                                </div>
+                                <div className="text-xs text-slate-500 mt-1">Tickets Closed</div>
+                              </div>
+
+                              {/* Average Rating */}
+                              <div className="text-center">
+                                {agent.averageRating ? (
+                                  <>
+                                    <div className="flex items-center justify-center gap-1 text-2xl font-bold text-slate-900">
+                                      <Star className="w-5 h-5 fill-yellow-400 text-yellow-400" />
+                                      {agent.averageRating.toFixed(1)}
+                                    </div>
+                                    <div className="text-xs text-slate-500 mt-1">
+                                      {agent.ratingCount} review{agent.ratingCount !== 1 ? "s" : ""}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="text-2xl font-bold text-slate-400">—</div>
+                                    <div className="text-xs text-slate-500 mt-1">No reviews</div>
+                                  </>
+                                )}
+                              </div>
+
+                              {/* Average Resolution Time */}
+                              <div className="text-center">
+                                {agent.averageResolutionTimeMinutes ? (
+                                  <>
+                                    <div className="text-2xl font-bold text-slate-900">
+                                      {formatTime(agent.averageResolutionTimeMinutes)}
+                                    </div>
+                                    <div className="text-xs text-slate-500 mt-1">Avg Resolution</div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className="text-2xl font-bold text-slate-400">—</div>
+                                    <div className="text-xs text-slate-500 mt-1">No data</div>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </CardContent>

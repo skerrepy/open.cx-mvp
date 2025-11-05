@@ -61,7 +61,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-4">
       <Tabs defaultValue="messenger" className="space-y-4">
-          <TabsList className="bg-white">
+          <TabsList>
             <TabsTrigger value="messenger" className="relative">
               Messenger
               {needsHumanCount > 0 && (
