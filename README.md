@@ -166,11 +166,22 @@ pnpm dev
 Create `.env.local` and populate it with your keys:
 
 ```makefile
+# Supabase Configuration
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
+DATABASE_URL=
+
+# Direct connection to the database. Used for migrations
+DIRECT_URL=
+# OpenAI API
 OPENAI_API_KEY=
-NEXT_PUBLIC_BASE_URL=
+
+# Application
+NEXT_PUBLIC_BASE_URL=http://localhost:3000
+SUPABASE_SERVICE_ROLE_KEY=
+
+# Node Environment
+NODE_ENV=development
 ```
 
 ### 🔗 Embedding the Widget
