@@ -57,18 +57,15 @@ export default function BusinessSettingsPage() {
 
   // Fetch existing settings
   // In single-tenant system, there's only one business
+  // Use API route to bypass RLS
   const { data: settings, isLoading } = useQuery({
     queryKey: ["business-settings"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("business_settings")
-        .select("*")
-        .limit(1)
-        .maybeSingle();
-      
-      if (error && error.code !== "PGRST116") {
-        throw error;
+      const response = await fetch("/api/business-settings");
+      if (!response.ok) {
+        throw new Error("Failed to fetch business settings");
       }
+      const data = await response.json();
       return data;
     },
   });
@@ -85,6 +82,7 @@ export default function BusinessSettingsPage() {
 
   // Save mutation
   // In single-tenant system, update the single business
+  // Use API route to bypass RLS
   const saveMutation = useMutation({
     mutationFn: async () => {
       if (!userId) throw new Error("User not authenticated");
@@ -95,35 +93,27 @@ export default function BusinessSettingsPage() {
         primary_language: primaryLanguage,
         ai_tone: aiTone,
         business_context: businessContext,
-        updated_at: new Date().toISOString(),
       };
 
-      // Update the single business if it exists, otherwise insert
-      if (settings?.id) {
-        // Update existing business
-        const { data: result, error } = await supabase
-          .from("business_settings")
-          .update(settingsData)
-          .eq("id", settings.id)
-          .select()
-          .single();
+      // Use API route to update/insert business settings
+      const response = await fetch("/api/business-settings", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(settingsData),
+      });
 
-        if (error) throw error;
-        return result;
-      } else {
-        // Insert new business (shouldn't happen in single-tenant, but handle it)
-        const { data: result, error } = await supabase
-          .from("business_settings")
-          .insert(settingsData)
-          .select()
-          .single();
-
-        if (error) throw error;
-        return result;
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to save settings");
       }
+
+      return await response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["business-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["business-settings-check"] });
       toast({
         title: "Settings saved",
         description: "Your business settings have been saved successfully.",

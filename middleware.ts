@@ -2,6 +2,18 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function middleware(request: NextRequest) {
+  // Allow widget and embed.js to be accessed without auth checks
+  const pathname = request.nextUrl.pathname;
+  if (pathname === "/widget" || pathname === "/embed.js") {
+    const response = NextResponse.next();
+    // Set headers to allow iframe embedding from any origin
+    // Remove X-Frame-Options to allow embedding (or it will block)
+    response.headers.delete("X-Frame-Options");
+    response.headers.set("Content-Security-Policy", "frame-ancestors *;");
+    response.headers.set("Access-Control-Allow-Origin", "*");
+    return response;
+  }
+
   let response = NextResponse.next({
     request: {
       headers: request.headers,

@@ -4,8 +4,35 @@
     return;
   }
 
+  // Get the origin from where this script was loaded (not the current page)
+  // This allows the widget to work when embedded on other websites
+  let scriptOrigin = '';
+  if (window.SUPPORT_AI_URL) {
+    scriptOrigin = window.SUPPORT_AI_URL.replace(/\/embed\.js$/, '').replace(/\/$/, '');
+  } else {
+    // Try to get the script's origin from the current script tag
+    const scripts = document.getElementsByTagName('script');
+    for (let i = scripts.length - 1; i >= 0; i--) {
+      const script = scripts[i];
+      if (script.src && script.src.includes('embed.js')) {
+        try {
+          const url = new URL(script.src);
+          scriptOrigin = url.origin;
+          break;
+        } catch (e) {
+          // Fallback to current origin if URL parsing fails
+          scriptOrigin = window.location.origin;
+        }
+      }
+    }
+    // Fallback if we couldn't find the script
+    if (!scriptOrigin) {
+      scriptOrigin = window.location.origin;
+    }
+  }
+
   const config = {
-    widgetUrl: window.SUPPORT_AI_URL || `${window.location.origin}/widget`,
+    widgetUrl: `${scriptOrigin}/widget`,
     position: "bottom-right",
   };
 
@@ -87,9 +114,23 @@
     }
   });
 
-  document.body.appendChild(btn);
+  // Wait for DOM to be ready before appending
+  function init() {
+    if (document.body) {
+      document.body.appendChild(btn);
+      // Mark as injected
+      window.supportAIWidget = true;
+    } else {
+      // If body isn't ready yet, wait for it
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+      } else {
+        // Fallback: wait a bit and try again
+        setTimeout(init, 100);
+      }
+    }
+  }
 
-  // Mark as injected
-  window.supportAIWidget = true;
+  init();
 })();
 

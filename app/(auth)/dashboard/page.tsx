@@ -29,20 +29,23 @@ export default function Dashboard() {
 
   // Check if business settings exist for onboarding redirect
   // In single-tenant system, there's only one business
+  // Use API route to bypass RLS
   const { data: hasSettings } = useQuery({
     queryKey: ["business-settings-check"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("business_settings")
-        .select("id")
-        .limit(1)
-        .maybeSingle();
-      
-      if (error && error.code !== "PGRST116") {
+      try {
+        const response = await fetch("/api/business-settings");
+        if (!response.ok) {
+          // If API fails, assume settings exist to avoid redirect loop
+          return true;
+        }
+        const data = await response.json();
+        return !!data; // Return true if settings exist
+      } catch (error) {
         console.error("Error checking business settings:", error);
-        return true; // Don't redirect on error
+        // On error, assume settings exist to avoid redirect loop
+        return true;
       }
-      return !!data; // Return true if settings exist
     },
   });
 
