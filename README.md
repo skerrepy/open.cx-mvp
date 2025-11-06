@@ -24,7 +24,7 @@ This project fulfills the assignment requirements of OpenCX, with a focus on:
 
 | Item | Link |
 | :--- | :--- |
-| **Live App** | [https://supportai.vercel.app](https://supportai.vercel.app) |
+| **Live App** | [https://supportai.vercel.app](https://open-cx-mvp.vercel.app) |
 | **GitHub Repo** | [https://github.com/skerrepy/open.cx-mvp](https://github.com/skerrepy/open.cx-mvp) |
 | **Widget Preview** | [https://open-cx-mvp.vercel.app/widget](https://open-cx-mvp.vercel.app/widget) |
 
