@@ -11,7 +11,7 @@ SupportAI is an **AI-driven customer support platform** built for SaaS companies
 
 ### Project Focus
 
-This project fulfills the assignment requirements of OpenCX, with a focus on:
+This project has a focus on:
 
   * **Practical product value**
   * **Smooth, intuitive UX**
